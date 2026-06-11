@@ -13,13 +13,14 @@ if sys.stdout is None or sys.stderr is None:
 # Force all subprocesses to hide the console window on Windows
 if os.name == 'nt':
     _original_popen = subprocess.Popen
-    def _patched_popen(*args, **kwargs):
-        if 'creationflags' not in kwargs:
-            kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
-        else:
-            kwargs['creationflags'] |= subprocess.CREATE_NO_WINDOW
-        return _original_popen(*args, **kwargs)
-    subprocess.Popen = _patched_popen
+    class _PatchedPopen(_original_popen):
+        def __init__(self, *args, **kwargs):
+            if 'creationflags' not in kwargs:
+                kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+            else:
+                kwargs['creationflags'] |= subprocess.CREATE_NO_WINDOW
+            super().__init__(*args, **kwargs)
+    subprocess.Popen = _PatchedPopen
 
 # Add src to path if needed
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__))))
