@@ -1,6 +1,17 @@
 import sys
 import os
 
+# Fix for PyInstaller Windowed mode (sys.stdout is None)
+if sys.stdout is None or sys.stderr is None:
+    class DummyStream:
+        def write(self, *args, **kwargs): pass
+        def flush(self, *args, **kwargs): pass
+        def fileno(self): return -1
+    if sys.stdout is None:
+        sys.stdout = DummyStream()
+    if sys.stderr is None:
+        sys.stderr = DummyStream()
+
 # Add src to path if needed
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__))))
 
