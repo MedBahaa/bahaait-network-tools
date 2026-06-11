@@ -1,0 +1,11 @@
+PySide6
+psutil
+scapy
+speedtest-cli
+requests
+pyinstaller
+icmplib
+sqlalchemy
+pyqtgraph
+supabase
+reportlab

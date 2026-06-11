@@ -1,0 +1,34 @@
+{
+    "alarm_sound": "C:/Users/user/Desktop/bahaa_network_master/sirene.wav",
+    "alarm_enabled": true,
+    "monitored_hosts": [
+        "1.1.1.1",
+        "8.8.8.8",
+        "10.10.1.1",
+        "10.10.1.10"
+    ],
+    "sites": [
+        {
+            "name": "Controlleur 1 Sablons",
+            "ip": "https://10.10.1.1:8443/",
+            "site": "Sablons"
+        },
+        {
+            "name": "Peplink 01 Sablons",
+            "ip": "https://10.10.1.10/",
+            "site": "Sablons"
+        },
+        {
+            "name": "Peplink 02 Sablons",
+            "ip": "https://10.10.1.11",
+            "site": "Sablons"
+        },
+        {
+            "name": "AP 400",
+            "ip": "10.10.184.150",
+            "site": "Sablons"
+        }
+    ],
+    "minimize_to_tray": false,
+    "disable_ssl": true
+}

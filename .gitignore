@@ -1,0 +1,19 @@
+# Build folders
+build/
+dist/
+*.spec
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Databases and sessions
+*.db
+session.dat
+session.json
+
+# IDEs
+.vscode/
+.idea/
