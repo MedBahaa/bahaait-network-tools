@@ -17,9 +17,11 @@ def build():
         '--clean',
     ]
     
-    # If we had icons or other assets:
-    # args.append('--add-data=assets;assets')
-    # args.append('--icon=assets/icon.ico')
+    # Include icons and other assets
+    args.append('--add-data=assets;assets')
+    args.append('--add-data=src/assets;src/assets')
+    if os.path.exists(os.path.join(os.path.dirname(__file__), "..", "assets", "icon.ico")):
+        args.append('--icon=assets/icon.ico')
 
     print(f"Building with arguments: {' '.join(args)}")
     PyInstaller.__main__.run(args)

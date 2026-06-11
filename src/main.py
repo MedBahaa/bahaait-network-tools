@@ -1,5 +1,6 @@
 import sys
 import os
+import subprocess
 
 # Fix for PyInstaller Windowed mode (sys.stdout is None)
 if sys.stdout is None or sys.stderr is None:
@@ -8,6 +9,17 @@ if sys.stdout is None or sys.stderr is None:
         sys.stdout = devnull
     if sys.stderr is None:
         sys.stderr = devnull
+
+# Force all subprocesses to hide the console window on Windows
+if os.name == 'nt':
+    _original_popen = subprocess.Popen
+    def _patched_popen(*args, **kwargs):
+        if 'creationflags' not in kwargs:
+            kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+        else:
+            kwargs['creationflags'] |= subprocess.CREATE_NO_WINDOW
+        return _original_popen(*args, **kwargs)
+    subprocess.Popen = _patched_popen
 
 # Add src to path if needed
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__))))

@@ -92,8 +92,15 @@ class MainWindow(QMainWindow):
         # Logo/Brand
         from PySide6.QtGui import QPixmap
         import os
+        import sys
         
-        logo_path = os.path.join(os.path.dirname(__file__), "..", "assets", "logo.png")
+        if getattr(sys, 'frozen', False):
+            base_dir = sys._MEIPASS
+            logo_path = os.path.join(base_dir, "src", "assets", "logo.png")
+        else:
+            base_dir = os.path.join(os.path.dirname(__file__), "..", "..")
+            logo_path = os.path.join(os.path.dirname(__file__), "..", "assets", "logo.png")
+
         if os.path.exists(logo_path):
             logo_label = QLabel()
             pixmap = QPixmap(logo_path)
@@ -239,7 +246,12 @@ class MainWindow(QMainWindow):
         ]
         
         import os
-        icons_dir = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "icons")
+        import sys
+        
+        if getattr(sys, 'frozen', False):
+            icons_dir = os.path.join(sys._MEIPASS, "assets", "icons")
+        else:
+            icons_dir = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "icons")
         
         for group_name, items in nav_groups:
             # Category Label
