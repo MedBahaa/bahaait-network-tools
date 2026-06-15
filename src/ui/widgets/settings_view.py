@@ -122,7 +122,7 @@ class SettingsView(QWidget):
 
         sync_btn_layout = QHBoxLayout()
         
-        self.login_btn = QPushButton("Login to Cloud")
+        self.login_btn = QPushButton("Login / Create Account")
         self.login_btn.setObjectName("PrimaryButton")
         self.login_btn.clicked.connect(self.open_login)
         
@@ -134,9 +134,14 @@ class SettingsView(QWidget):
         self.restore_btn.setObjectName("SecondaryButton")
         self.restore_btn.clicked.connect(self.restore_from_cloud)
 
+        self.logout_btn = QPushButton("Logout")
+        self.logout_btn.setObjectName("DangerButton")
+        self.logout_btn.clicked.connect(self.logout)
+
         sync_btn_layout.addWidget(self.login_btn)
         sync_btn_layout.addWidget(self.backup_btn)
         sync_btn_layout.addWidget(self.restore_btn)
+        sync_btn_layout.addWidget(self.logout_btn)
         sync_btn_layout.addStretch()
 
         sync_layout.addLayout(sync_btn_layout)
@@ -205,18 +210,26 @@ class SettingsView(QWidget):
             self.login_btn.setVisible(False)
             self.backup_btn.setVisible(True)
             self.restore_btn.setVisible(True)
+            self.logout_btn.setVisible(True)
         else:
             self.sync_status_label.setText("Status: Offline (Not logged in)")
             self.sync_status_label.setStyleSheet("color: #F43F5E; font-weight: bold;")
             self.login_btn.setVisible(True)
             self.backup_btn.setVisible(False)
             self.restore_btn.setVisible(False)
+            self.logout_btn.setVisible(False)
 
     def open_login(self):
         from ui.widgets.login_view import LoginDialog
         dialog = LoginDialog(self.auth_manager, self)
         dialog.exec()
         self.update_cloud_ui()
+
+    def logout(self):
+        if self.auth_manager:
+            self.auth_manager.logout()
+            self.update_cloud_ui()
+            QMessageBox.information(self, "Logout", "You have been logged out successfully.")
 
     def save_app_settings(self):
         if self.config:
@@ -277,15 +290,14 @@ class SettingsView(QWidget):
 
     def check_updates_manually(self):
         from utils.updater import AutoUpdater
-        from PySide6.QtWidgets import QApplication
         
         self.update_btn.setText("Checking...")
         self.update_btn.setEnabled(False)
-        QApplication.processEvents() # Force UI update before blocking
         
-        try:
-            updater = AutoUpdater(self)
-            updater.check_for_updates(silent=False)
-        finally:
-            self.update_btn.setText("Check for Updates")
-            self.update_btn.setEnabled(True)
+        self.updater = AutoUpdater(self)
+        self.updater.finished.connect(self.on_update_check_finished)
+        self.updater.check_for_updates(silent=False)
+
+    def on_update_check_finished(self):
+        self.update_btn.setText("Check for Updates")
+        self.update_btn.setEnabled(True)

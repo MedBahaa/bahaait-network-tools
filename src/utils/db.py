@@ -58,7 +58,9 @@ class GlobalServiceLog(Base):
 class DatabaseManager:
     def __init__(self, db_path: Optional[str] = None):
         if db_path is None:
-            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            app_data = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
+            base_dir = os.path.join(app_data, 'BahaaIT')
+            os.makedirs(base_dir, exist_ok=True)
             self.db_path = os.path.join(base_dir, "bahaait_network.db")
         else:
             self.db_path = db_path

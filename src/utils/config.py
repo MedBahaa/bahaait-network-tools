@@ -13,7 +13,10 @@ class ConfigManager:
     }
 
     def __init__(self):
-        self.config_path = os.path.join(os.path.dirname(__file__), "..", "config.json")
+        app_data = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
+        base_dir = os.path.join(app_data, 'BahaaIT')
+        os.makedirs(base_dir, exist_ok=True)
+        self.config_path = os.path.join(base_dir, "config.json")
         self.config = self.load()
 
     def load(self):

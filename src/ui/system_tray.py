@@ -10,13 +10,32 @@ class SystemTrayManager(QObject):
         # Create Tray Icon
         self.tray_icon = QSystemTrayIcon(self.window)
         
-        # Try to use a standard icon as placeholder
-        icon = self.window.style().standardIcon(QStyle.SP_ComputerIcon)
+        # Try to use the application icon
+        from PySide6.QtWidgets import QApplication
+        import os
+        import sys
+        
+        icon = QApplication.windowIcon()
         if icon.isNull():
-            # Create a simple colored square as fallback
-            pixmap = QPixmap(32, 32)
-            pixmap.fill(QColor("#3d5afe"))
-            icon = QIcon(pixmap)
+            icon = self.window.windowIcon()
+            
+        if icon.isNull():
+            # Try to load it from file directly
+            if getattr(sys, 'frozen', False):
+                icon_path = os.path.join(sys._MEIPASS, "assets", "app_icon.ico")
+            else:
+                # src/ui/system_tray.py -> go up two directories to BahaaIT root, then assets/app_icon.ico
+                icon_path = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "app_icon.ico")
+            if os.path.exists(icon_path):
+                icon = QIcon(icon_path)
+            else:
+                # Try to use a standard icon as placeholder
+                icon = self.window.style().standardIcon(QStyle.SP_ComputerIcon)
+                if icon.isNull():
+                    # Create a simple colored square as fallback
+                    pixmap = QPixmap(32, 32)
+                    pixmap.fill(QColor("#3d5afe"))
+                    icon = QIcon(pixmap)
             
         self.tray_icon.setIcon(icon)
         self.tray_icon.setToolTip("BahaaIT Network Tools")

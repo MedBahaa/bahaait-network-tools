@@ -95,6 +95,30 @@ class MonitorView(QWidget):
         # Lock row height
         self.table.verticalHeader().setDefaultSectionSize(50)
         self.table.verticalHeader().setVisible(False) # Hide row numbers for cleaner look
+        
+        self.table.setStyleSheet("""
+            QTableWidget {
+                background-color: #1E293B;
+                alternate-background-color: #161E2D;
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                border-radius: 12px;
+                gridline-color: transparent;
+            }
+            QTableWidget::item {
+                padding-left: 20px;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+            }
+            QHeaderView::section {
+                background-color: #0F172A;
+                padding-left: 20px;
+                text-align: left;
+                font-weight: bold;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+                font-size: 11px;
+            }
+        """)
+        
         self.layout.addWidget(self.table)
         
         # Event Log
@@ -261,6 +285,7 @@ class MonitorView(QWidget):
             
             host_item = QTableWidgetItem(host)
             host_item.setTextAlignment(Qt.AlignCenter)
+            host_item.setForeground(QColor("#6366F1"))
             self.table.setItem(row, 1, host_item)
             
             status_item = QTableWidgetItem(data["status"])
@@ -285,7 +310,11 @@ class MonitorView(QWidget):
             action_layout.setSpacing(10)
             action_layout.setAlignment(Qt.AlignCenter)
             
-            icons_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "assets", "icons")
+            import sys
+            if getattr(sys, 'frozen', False):
+                icons_dir = os.path.join(sys._MEIPASS, "assets", "icons")
+            else:
+                icons_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "assets", "icons")
             
             pause_icon = "pause.svg" if data["active"] else "play.svg"
             pause_btn = QPushButton()

@@ -17,7 +17,10 @@ class AuthManager:
         finally:
             supabase._sync.client.re.match = original_match
             
-        self.session_file = os.path.join(os.path.dirname(__file__), "..", "..", "session.json")
+        app_data = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
+        base_dir = os.path.join(app_data, 'BahaaIT')
+        os.makedirs(base_dir, exist_ok=True)
+        self.session_file = os.path.join(base_dir, "session.json")
         self.user = None
         self.load_session()
 

@@ -61,21 +61,23 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("BahaaIT Network Tools")
     
+    from PySide6.QtGui import QIcon
+    if getattr(sys, 'frozen', False):
+        icon_path = os.path.join(sys._MEIPASS, "assets", "app_icon.ico")
+    else:
+        icon_path = os.path.join(os.path.dirname(__file__), "..", "assets", "app_icon.ico")
+    app.setWindowIcon(QIcon(icon_path))
+    
     # Auth
     auth_manager = AuthManager()
-    
-    if not auth_manager.is_authenticated():
-        login_dialog = LoginDialog(auth_manager)
-        if login_dialog.exec() != LoginDialog.Accepted:
-            sys.exit(0)
     
     # 4. Show Main Window
     window = MainWindow(logger, log_handler, auth_manager)
     window.show()
     
     # 5. Check for updates (silent on startup)
-    updater = AutoUpdater(window)
-    updater.check_for_updates(silent=True)
+    window.updater = AutoUpdater(window)
+    window.updater.check_for_updates(silent=True)
     
     sys.exit(app.exec())
 

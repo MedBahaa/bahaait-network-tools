@@ -35,7 +35,11 @@ class AlarmManager:
             self.player.setLoops(QMediaPlayer.Loops.Infinite)
             
             # Default alarm
-            default_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "assets", "alarm.wav"))
+            import sys
+            if getattr(sys, 'frozen', False):
+                default_path = os.path.join(sys._MEIPASS, "assets", "alarm.wav")
+            else:
+                default_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "assets", "alarm.wav"))
             self.set_source(default_path)
 
     def set_source(self, file_path):

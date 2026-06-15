@@ -51,7 +51,11 @@ class SitesView(QWidget):
         self._editing_index = -1  # -1 = add mode, >= 0 = editing that index
         
         # Path to icons
-        self.icons_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "assets", "icons")
+        import sys
+        if getattr(sys, 'frozen', False):
+            self.icons_dir = os.path.join(sys._MEIPASS, "assets", "icons")
+        else:
+            self.icons_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "assets", "icons")
         
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(30, 25, 30, 30)
