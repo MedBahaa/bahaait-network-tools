@@ -111,8 +111,9 @@ class MainWindow(QMainWindow):
         brand.setObjectName("LogoLabel")
         self.header_layout.addWidget(brand)
         
-        # Application Version (Easy to update here)
-        self.APP_VERSION = "v1.0.0"
+        # Application Version (Read from utils.updater)
+        from utils.updater import CURRENT_VERSION
+        self.APP_VERSION = CURRENT_VERSION
         version_label = QLabel(self.APP_VERSION)
         version_label.setStyleSheet("color: #6366F1; font-size: 12px; font-weight: bold; margin-left: 5px; margin-bottom: 2px;")
         version_label.setAlignment(Qt.AlignBottom | Qt.AlignLeft)
