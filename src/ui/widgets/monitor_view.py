@@ -126,7 +126,17 @@ class MonitorView(QWidget):
         self.event_log = QTextEdit()
         self.event_log.setReadOnly(True)
         self.event_log.setMaximumHeight(150)
-        self.event_log.setStyleSheet("background-color: #000000; color: #00ff00; font-family: 'Consolas', monospace; font-size: 11px;")
+        self.event_log.setStyleSheet("""
+            QTextEdit {
+                background-color: #000000;
+                color: #00ff00;
+                font-family: 'Consolas', monospace;
+                font-size: 11px;
+                border: 1px solid #334155;
+                border-radius: 10px;
+                padding: 10px;
+            }
+        """)
         self.layout.addWidget(self.event_log)
         
         clear_log_btn = QPushButton("Clear Log")

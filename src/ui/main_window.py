@@ -357,7 +357,7 @@ class MainWindow(QMainWindow):
             os._exit(0)
             return
             
-        if self.config_manager.get("minimize_to_tray", True):
+        if self.config_manager.get("minimize_to_tray", False):
             event.ignore()
             self.hide()
             self.tray_manager.notify("BahaaIT Hidden", "App is still running in the background.")

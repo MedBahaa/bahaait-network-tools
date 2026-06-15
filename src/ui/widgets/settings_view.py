@@ -32,7 +32,7 @@ class SettingsView(QWidget):
         app_layout.addWidget(sec_header1)
         
         self.tray_checkbox = QCheckBox("Minimize to System Tray on close (Ghost Mode)")
-        self.tray_checkbox.setChecked(self.config.get("minimize_to_tray", True) if self.config else True)
+        self.tray_checkbox.setChecked(self.config.get("minimize_to_tray", False) if self.config else False)
         self.tray_checkbox.stateChanged.connect(self.save_app_settings)
         app_layout.addWidget(self.tray_checkbox)
         

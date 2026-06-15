@@ -114,7 +114,16 @@ class RemoteView(QWidget):
         # Terminal Output
         self.terminal = QTextEdit()
         self.terminal.setReadOnly(True)
-        self.terminal.setStyleSheet("background-color: #000000; color: #ffffff; font-family: 'Consolas', monospace;")
+        self.terminal.setStyleSheet("""
+            QTextEdit {
+                background-color: #000000;
+                color: #ffffff;
+                font-family: 'Consolas', monospace;
+                border: 1px solid #334155;
+                border-radius: 10px;
+                padding: 10px;
+            }
+        """)
         self.layout.addWidget(self.terminal)
         
         # Command Input

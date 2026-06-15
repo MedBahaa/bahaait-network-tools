@@ -5,6 +5,7 @@ class ConfigManager:
     DEFAULT_CONFIG = {
         "alarm_sound": "",
         "alarm_enabled": True,
+        "minimize_to_tray": False,
         "monitored_hosts": ["8.8.8.8", "1.1.1.1", "google.com"],
         "sites": [
             {"name": "HQ Router", "ip": "192.168.1.1", "site": "Main Office"},
