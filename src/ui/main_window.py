@@ -8,11 +8,7 @@ from ui.widgets.tools_view import ToolsView
 from ui.widgets.scanner_view import ScannerView
 from ui.widgets.config_view import ConfigView
 from ui.widgets.settings_view import SettingsView
-from ui.widgets.speedtest_view import SpeedtestView
-from ui.widgets.browser_view import BrowserView
-from ui.widgets.remote_view import RemoteView
-from ui.widgets.service_status_view import ServiceStatusView
-from ui.widgets.sites_view import SitesView
+# SpeedtestView, BrowserView, RemoteView, ServiceStatusView, SitesView are lazy-loaded
 from utils.config import ConfigManager
 from ui.system_tray import SystemTrayManager
 from utils.audio import AlarmManager
@@ -284,9 +280,45 @@ class MainWindow(QMainWindow):
         
         self.body_layout.addWidget(self.sidebar)
 
+    def _replace_placeholder(self, index, widget):
+        placeholder = self.content_area.widget(index)
+        self.content_area.removeWidget(placeholder)
+        placeholder.deleteLater()
+        self.content_area.insertWidget(index, widget)
+
     def switch_page(self, index):
         if self.content_area.currentIndex() == index:
             return
+            
+        # Lazy load heavy views on first click
+        if index == 6 and self.speedtest is None:
+            from ui.widgets.speedtest_view import SpeedtestView
+            self.speedtest = SpeedtestView(self.logger)
+            self._replace_placeholder(6, self.speedtest)
+            
+        elif index == 7 and self.browser_view is None:
+            from ui.widgets.browser_view import BrowserView
+            self.browser_view = BrowserView(self.logger)
+            self._replace_placeholder(7, self.browser_view)
+            
+        elif index == 8 and self.remote_view is None:
+            from ui.widgets.remote_view import RemoteView
+            self.remote_view = RemoteView(self.logger)
+            self._replace_placeholder(8, self.remote_view)
+            
+        elif index == 9 and self.service_status_view is None:
+            from ui.widgets.service_status_view import ServiceStatusView
+            self.service_status_view = ServiceStatusView(self.logger)
+            self.service_status_view.service_alert.connect(
+                lambda name, status: self.tray_manager.notify("Service Alert", f"Global Service '{name}' is currently {status}!")
+            )
+            self._replace_placeholder(9, self.service_status_view)
+            
+        elif index == 10 and self.sites_view is None:
+            from ui.widgets.sites_view import SitesView
+            self.sites_view = SitesView(self.logger, self.config_manager)
+            self.sites_view.open_in_browser.connect(self._open_site_in_browser)
+            self._replace_placeholder(10, self.sites_view)
             
         widget = self.content_area.widget(index)
         self.content_area.setCurrentIndex(index)
@@ -308,15 +340,13 @@ class MainWindow(QMainWindow):
         self.scanner = ScannerView(self.logger)
         self.config = ConfigView(self.logger, self.config_manager)
         self.settings = SettingsView(self.logger, self.alarm_manager, self.config_manager, self.auth_manager)
-        self.speedtest = SpeedtestView(self.logger)
-        self.browser_view = BrowserView(self.logger)
-        self.remote_view = RemoteView(self.logger)
-        self.service_status_view = ServiceStatusView(self.logger)
-        self.service_status_view.service_alert.connect(
-            lambda name, status: self.tray_manager.notify("Service Alert", f"Global Service '{name}' is currently {status}!")
-        )
-        self.sites_view = SitesView(self.logger, self.config_manager)
-        self.sites_view.open_in_browser.connect(self._open_site_in_browser)
+        
+        # Heavy views initialized as placeholders (lazy loaded)
+        self.speedtest = None
+        self.browser_view = None
+        self.remote_view = None
+        self.service_status_view = None
+        self.sites_view = None
         
         self.content_area.addWidget(self.dashboard)       # Index 0
         self.content_area.addWidget(self.monitor)         # Index 1
@@ -324,17 +354,23 @@ class MainWindow(QMainWindow):
         self.content_area.addWidget(self.scanner)         # Index 3
         self.content_area.addWidget(self.config)          # Index 4
         self.content_area.addWidget(self.settings)        # Index 5
-        self.content_area.addWidget(self.speedtest)       # Index 6
-        self.content_area.addWidget(self.browser_view)    # Index 7
-        self.content_area.addWidget(self.remote_view)     # Index 8
-        self.content_area.addWidget(self.service_status_view) # Index 9
-        self.content_area.addWidget(self.sites_view)      # Index 10
+        
+        # Add placeholders for lazy loaded screens
+        for _ in range(5):
+            self.content_area.addWidget(QWidget())
 
     def _open_site_in_browser(self, ip):
         """Switch to Web Manager and navigate to the given IP/URL."""
         url = ip.strip()
         if not url.startswith("http"):
             url = "http://" + url
+            
+        # Ensure browser view is lazy-loaded before using it
+        if self.browser_view is None:
+            from ui.widgets.browser_view import BrowserView
+            self.browser_view = BrowserView(self.logger)
+            self._replace_placeholder(7, self.browser_view)
+            
         self.browser_view.address_bar.setText(url)
         self.browser_view.navigate()
         self.switch_page(7)
