@@ -3,7 +3,6 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 from PySide6.QtCore import Qt
 import os
 import webbrowser
-from scapy.all import conf
 from utils.cloud_sync import CloudSyncManager
 
 class SettingsView(QWidget):
@@ -15,18 +14,42 @@ class SettingsView(QWidget):
         self.auth_manager = auth_manager
         self.cloud_sync = CloudSyncManager(auth_manager) if auth_manager else None
         
-        self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(30, 30, 30, 30)
+        # Main layout
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(30, 30, 30, 30)
+        self.main_layout.setSpacing(20)
         
         # Header
         header = QLabel("Global Settings")
         header.setObjectName("Title")
-        self.layout.addWidget(header)
+        self.main_layout.addWidget(header)
         
-        # Application Settings Card
+        # Columns Layout
+        columns_layout = QHBoxLayout()
+        columns_layout.setSpacing(25)
+        self.main_layout.addLayout(columns_layout)
+        
+        # Left Column Layout
+        left_col = QVBoxLayout()
+        left_col.setSpacing(20)
+        columns_layout.addLayout(left_col, 1)
+        
+        # Right Column Layout
+        right_col = QVBoxLayout()
+        right_col.setSpacing(20)
+        columns_layout.addLayout(right_col, 1)
+
+        # ----------------------------------------------------
+        # LEFT COLUMN CARDS
+        # ----------------------------------------------------
+        
+        # 1. Behavior & Security Card
         app_card = QFrame()
         app_card.setObjectName("Card")
         app_layout = QVBoxLayout(app_card)
+        app_layout.setContentsMargins(22, 22, 22, 22)
+        app_layout.setSpacing(15)
+        
         sec_header1 = QLabel("Behavior & Security")
         sec_header1.setObjectName("SectionHeader")
         app_layout.addWidget(sec_header1)
@@ -55,36 +78,30 @@ class SettingsView(QWidget):
         self.autostart_checkbox.stateChanged.connect(self.toggle_autostart)
         app_layout.addWidget(self.autostart_checkbox)
         
+        # Separator line
+        sep1 = QFrame()
+        sep1.setFrameShape(QFrame.HLine)
+        sep1.setStyleSheet("background-color: rgba(255, 255, 255, 0.05); min-height: 1px; max-height: 1px; border: none; margin-top: 5px;")
+        app_layout.addWidget(sep1)
+        
         # Check for updates button
         self.update_btn = QPushButton("Check for Updates")
         self.update_btn.setObjectName("SecondaryButton")
         self.update_btn.clicked.connect(self.check_updates_manually)
         app_layout.addWidget(self.update_btn)
         
-        self.layout.addWidget(app_card)
+        left_col.addWidget(app_card)
         
-        # Alarm Settings Card
+        # 2. Alert Notifications Card
         alarm_card = QFrame()
         alarm_card.setObjectName("Card")
         alarm_layout = QVBoxLayout(alarm_card)
+        alarm_layout.setContentsMargins(22, 22, 22, 22)
+        alarm_layout.setSpacing(15)
+        
         sec_header2 = QLabel("Alert Notifications")
         sec_header2.setObjectName("SectionHeader")
         alarm_layout.addWidget(sec_header2)
-        
-        sound_h_layout = QHBoxLayout()
-        self.sound_label = QLabel("Current Sound: Default")
-        saved_sound = self.config.get("alarm_sound") if self.config else None
-        if saved_sound:
-            self.sound_label.setText(f"Current Sound: {os.path.basename(saved_sound)}")
-            
-        self.set_sound_btn = QPushButton("Change Sound (.wav)")
-        self.set_sound_btn.setObjectName("SecondaryButton")
-        self.set_sound_btn.clicked.connect(self.select_alarm_sound)
-        
-        sound_h_layout.addWidget(self.sound_label)
-        sound_h_layout.addStretch()
-        sound_h_layout.addWidget(self.set_sound_btn)
-        alarm_layout.addLayout(sound_h_layout)
         
         self.mute_checkbox = QCheckBox("Enable Audible Alarms")
         alarm_enabled = self.config.get("alarm_enabled") if self.config else True
@@ -92,35 +109,99 @@ class SettingsView(QWidget):
         self.mute_checkbox.stateChanged.connect(self.save_alarm_enabled)
         alarm_layout.addWidget(self.mute_checkbox)
         
-        self.layout.addWidget(alarm_card)
+        # Horizontal sound info layout
+        sound_h_layout = QHBoxLayout()
+        sound_h_layout.setSpacing(15)
         
-        # Driver Status Card
+        self.sound_label = QLabel("Current Sound: Default")
+        saved_sound = self.config.get("alarm_sound") if self.config else None
+        if saved_sound:
+            self.sound_label.setText(f"Current Sound: {os.path.basename(saved_sound)}")
+        self.sound_label.setWordWrap(True)
+        self.sound_label.setStyleSheet("color: #94A3B8; font-size: 12px;")
+            
+        self.set_sound_btn = QPushButton("Change Sound (.wav)")
+        self.set_sound_btn.setObjectName("SecondaryButton")
+        self.set_sound_btn.clicked.connect(self.select_alarm_sound)
+        
+        sound_h_layout.addWidget(self.sound_label, 1)
+        sound_h_layout.addWidget(self.set_sound_btn)
+        alarm_layout.addLayout(sound_h_layout)
+        
+        left_col.addWidget(alarm_card)
+        left_col.addStretch()
+
+        # ----------------------------------------------------
+        # RIGHT COLUMN CARDS
+        # ----------------------------------------------------
+        
+        # 3. Network Engine Status Card
         driver_frame = QFrame()
         driver_frame.setObjectName("Card")
         driver_layout = QVBoxLayout(driver_frame)
+        driver_layout.setContentsMargins(22, 22, 22, 22)
+        driver_layout.setSpacing(15)
+        
         sec_header3 = QLabel("Network Engine Status")
         sec_header3.setObjectName("SectionHeader")
         driver_layout.addWidget(sec_header3)
         
         self.status_h_layout = QHBoxLayout()
+        self.status_h_layout.setSpacing(15)
         driver_layout.addLayout(self.status_h_layout)
         
         self.check_npcap_status()
+        right_col.addWidget(driver_frame)
         
-        self.layout.addWidget(driver_frame)
+        # 4. Storage & Maintenance Card
+        maint_card = QFrame()
+        maint_card.setObjectName("Card")
+        maint_layout = QVBoxLayout(maint_card)
+        maint_layout.setContentsMargins(22, 22, 22, 22)
+        maint_layout.setSpacing(15)
         
-        # Cloud Sync Card
+        sec_header5 = QLabel("Storage & Maintenance")
+        sec_header5.setObjectName("SectionHeader")
+        maint_layout.addWidget(sec_header5)
+
+        maint_desc = QLabel("Manage your local application data files (logs and database).")
+        maint_desc.setStyleSheet("color: #94A3B8; font-size: 12px;")
+        maint_layout.addWidget(maint_desc)
+
+        maint_btn_layout = QHBoxLayout()
+        maint_btn_layout.setSpacing(10)
+        
+        self.open_db_btn = QPushButton("Open DB Folder")
+        self.open_db_btn.setObjectName("SecondaryButton")
+        self.open_db_btn.clicked.connect(self.open_db_folder)
+        
+        self.open_logs_btn = QPushButton("Open Logs Folder")
+        self.open_logs_btn.setObjectName("SecondaryButton")
+        self.open_logs_btn.clicked.connect(self.open_logs_folder)
+        
+        maint_btn_layout.addWidget(self.open_db_btn)
+        maint_btn_layout.addWidget(self.open_logs_btn)
+        maint_btn_layout.addStretch()
+        maint_layout.addLayout(maint_btn_layout)
+        right_col.addWidget(maint_card)
+        
+        # 5. Cloud Sync Card
         sync_card = QFrame()
         sync_card.setObjectName("Card")
         sync_layout = QVBoxLayout(sync_card)
+        sync_layout.setContentsMargins(22, 22, 22, 22)
+        sync_layout.setSpacing(15)
+        
         sec_header4 = QLabel("Cloud Configuration Sync (Premium)")
         sec_header4.setObjectName("SectionHeader")
         sync_layout.addWidget(sec_header4)
 
         self.sync_status_label = QLabel()
+        self.sync_status_label.setStyleSheet("font-size: 13px;")
         sync_layout.addWidget(self.sync_status_label)
 
         sync_btn_layout = QHBoxLayout()
+        sync_btn_layout.setSpacing(10)
         
         self.login_btn = QPushButton("Login / Create Account")
         self.login_btn.setObjectName("PrimaryButton")
@@ -145,11 +226,10 @@ class SettingsView(QWidget):
         sync_btn_layout.addStretch()
 
         sync_layout.addLayout(sync_btn_layout)
-        self.layout.addWidget(sync_card)
+        right_col.addWidget(sync_card)
         
         self.update_cloud_ui()
-        
-        self.layout.addStretch()
+        right_col.addStretch()
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -183,24 +263,31 @@ class SettingsView(QWidget):
                 
         self.npcap_status_label = QLabel()
         self.npcap_status_label.setWordWrap(True)
-        self.status_h_layout.addWidget(self.npcap_status_label)
         
         if has_npcap:
             self.npcap_status_label.setText("✅ <b>Npcap Driver: Installed</b><br><small style='color: #94A3B8;'>High-performance packet capture is active.</small>")
-            self.npcap_status_label.setStyleSheet("color: #10B981;")
+            self.npcap_status_label.setStyleSheet("color: #10B981; font-size: 13px;")
         else:
             self.npcap_status_label.setText("⚠️ <b>Npcap Driver: Missing</b><br><small style='color: #94A3B8;'>MAC detection and advanced scans may be limited.</small>")
-            self.npcap_status_label.setStyleSheet("color: #F43F5E;")
+            self.npcap_status_label.setStyleSheet("color: #F43F5E; font-size: 13px;")
             
+        self.status_h_layout.addWidget(self.npcap_status_label, 1)
+        
+        btn_v_layout = QVBoxLayout()
+        btn_v_layout.setSpacing(5)
+        
+        if not has_npcap:
             download_btn = QPushButton("Download Npcap")
             download_btn.setObjectName("SecondaryButton")
             download_btn.clicked.connect(lambda: webbrowser.open("https://nmap.org/npcap/"))
-            self.status_h_layout.addWidget(download_btn)
+            btn_v_layout.addWidget(download_btn)
             
         recheck_btn = QPushButton("Re-check Status")
         recheck_btn.setObjectName("SecondaryButton")
         recheck_btn.clicked.connect(self.check_npcap_status)
-        self.status_h_layout.addWidget(recheck_btn)
+        btn_v_layout.addWidget(recheck_btn)
+        
+        self.status_h_layout.addLayout(btn_v_layout)
 
     def update_cloud_ui(self):
         if self.auth_manager and self.auth_manager.is_authenticated():
@@ -265,7 +352,6 @@ class SettingsView(QWidget):
             
         config_data = {}
         if self.config:
-            # config is a dict-like manager
             config_data = self.config.config
             
         success, msg = self.cloud_sync.backup_config(config_data)
@@ -301,3 +387,23 @@ class SettingsView(QWidget):
     def on_update_check_finished(self):
         self.update_btn.setText("Check for Updates")
         self.update_btn.setEnabled(True)
+
+    def open_db_folder(self):
+        import subprocess
+        app_data = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
+        base_dir = os.path.join(app_data, 'BahaaIT')
+        if os.path.exists(base_dir):
+            if os.name == 'nt':
+                os.startfile(base_dir)
+            else:
+                subprocess.Popen(['xdg-open', base_dir])
+
+    def open_logs_folder(self):
+        import subprocess
+        app_data = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
+        log_dir = os.path.join(app_data, 'BahaaIT', 'logs')
+        if os.path.exists(log_dir):
+            if os.name == 'nt':
+                os.startfile(log_dir)
+            else:
+                subprocess.Popen(['xdg-open', log_dir])

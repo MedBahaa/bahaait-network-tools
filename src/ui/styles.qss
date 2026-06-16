@@ -389,6 +389,7 @@ QRadioButton {
     font-size: 14px;
     font-weight: 500;
     background: transparent;
+    min-height: 28px; /* Added min-height to prevent vertical clipping */
 }
 
 QRadioButton::indicator {
@@ -413,6 +414,7 @@ QCheckBox {
     spacing: 10px;
     color: #F1F5F9;
     font-weight: 500;
+    min-height: 28px; /* Added min-height to prevent vertical clipping */
 }
 
 QCheckBox::indicator {

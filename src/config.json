@@ -1,5 +1,5 @@
 {
-    "alarm_sound": "C:/Users/user/Desktop/bahaa_network_master/sirene.wav",
+    "alarm_sound": "",
     "alarm_enabled": true,
     "monitored_hosts": [
         "1.1.1.1",

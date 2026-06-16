@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QMessageBox, QProgressDialog
 from PySide6.QtCore import QObject, Signal, Slot, Qt
 
 GITHUB_REPO = "MedBahaa/bahaait-network-tools"
-CURRENT_VERSION = "v1.0.1"
+CURRENT_VERSION = "v2.0.0"
 
 class UpdateWorker(QObject):
     update_available = Signal(str, str, str, str)  # latest_version, release_notes, download_url, exe_url

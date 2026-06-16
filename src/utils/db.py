@@ -71,6 +71,12 @@ class DatabaseManager:
         self.Session = sessionmaker(bind=self.engine)
         
         self._init_default_global_services()
+        
+        # Nettoyage automatique des anciens logs (> 30 jours) au démarrage
+        try:
+            self.cleanup_old_logs(30)
+        except Exception as e:
+            print(f"DB Warning (initial log cleanup): {e}")
 
     def _init_default_global_services(self):
         default_services = [
