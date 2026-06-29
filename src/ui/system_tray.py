@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import QSystemTrayIcon, QMenu, QStyle
 from PySide6.QtGui import QIcon, QAction, QPixmap, QPainter, QColor
 from PySide6.QtCore import QObject, Qt
+from utils.i18n import _
 
 class SystemTrayManager(QObject):
     def __init__(self, parent_window):
@@ -43,13 +44,13 @@ class SystemTrayManager(QObject):
         # Create Menu
         self.menu = QMenu()
         
-        show_action = QAction("Show BahaaIT", self)
+        show_action = QAction(_("tray_show"), self)
         show_action.triggered.connect(self.window.showNormal)
         self.menu.addAction(show_action)
         
         self.menu.addSeparator()
         
-        quit_action = QAction("Quit", self)
+        quit_action = QAction(_("tray_quit"), self)
         quit_action.triggered.connect(self.window.quit_app)
         self.menu.addAction(quit_action)
         

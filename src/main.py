@@ -34,20 +34,12 @@ from utils.auth import AuthManager
 from utils.updater import AutoUpdater
 import json
 
-def load_settings():
-    config_path = os.path.join(os.path.dirname(__file__), "config.json")
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, "r") as f:
-                return json.load(f)
-        except:
-            return {}
-    return {}
+from utils.config import ConfigManager
 
 def main():
-    # 0. Load settings for flags
-    settings = load_settings()
-    if settings.get("disable_ssl", False):
+    # 0. Load settings for flags from centralized config manager
+    config_manager = ConfigManager()
+    if config_manager.get("disable_ssl", False):
         os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--ignore-certificate-errors --ignore-ssl-errors"
     else:
         if "QTWEBENGINE_CHROMIUM_FLAGS" in os.environ:

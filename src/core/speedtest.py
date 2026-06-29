@@ -62,7 +62,7 @@ class SpeedTestWorker(QThread):
                                 lost += 1
                     else:
                         lost += 1
-                except:
+                except Exception:
                     lost += 1
                 time.sleep(0.1)
             
@@ -156,10 +156,12 @@ class ServerListWorker(QThread):
                             s['id'] = str(s['id'])
                             if not any(x['id'] == s['id'] for x in final_list):
                                 final_list.append(s)
-                    except:
+                    except Exception:
                         continue
             except Exception as e:
-                self.logger.warning(f"Failed to fetch international servers: {e}")
+                import logging
+                logger = logging.getLogger("BahaaIT")
+                logger.warning(f"Failed to fetch international servers: {e}")
             
             # Final UI cleanup for names
             for s in final_list:

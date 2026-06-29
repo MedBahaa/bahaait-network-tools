@@ -1,8 +1,8 @@
 [Setup]
 ; Basic Application Information
 AppName=BahaaIT Network Tools
-AppVersion=2.0.0
-AppPublisher=MedBahaa
+AppVersion=3.0.0
+AppPublisher=Bahaa Mohamed
 DefaultDirName={autopf}\BahaaIT
 DefaultGroupName=BahaaIT Network Tools
 UninstallDisplayIcon={app}\BahaaIT.exe
@@ -12,7 +12,7 @@ SetupIconFile=..\assets\app_icon.ico
 Compression=lzma2
 SolidCompression=yes
 OutputDir=..\dist
-OutputBaseFilename=Install_BahaaIT_v2.0.0
+OutputBaseFilename=Install_BahaaIT_v3.0.0
 
 ; Permissions
 PrivilegesRequired=admin

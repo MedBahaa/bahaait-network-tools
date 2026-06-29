@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QStackedWidget, QLabel, QFrame, QStatusBar, QGraphicsOpacityEffect)
-from PySide6.QtCore import Qt, QSize, QTimer, QPropertyAnimation, QEasingCurve
+from PySide6.QtCore import Qt, QSize, QTimer, QPropertyAnimation, QEasingCurve, Signal
 from PySide6.QtGui import QIcon, QFont
 from ui.widgets.dashboard_view import DashboardView
 from ui.widgets.monitor_view import MonitorView
@@ -12,8 +12,11 @@ from ui.widgets.settings_view import SettingsView
 from utils.config import ConfigManager
 from ui.system_tray import SystemTrayManager
 from utils.audio import AlarmManager
+from utils.i18n import _
 
 class MainWindow(QMainWindow):
+    stats_updated = Signal(dict)
+
     def __init__(self, logger, log_handler, auth_manager=None):
         super().__init__()
         self.logger = logger
@@ -24,6 +27,7 @@ class MainWindow(QMainWindow):
         self.tray_manager = SystemTrayManager(self)
         self.tray_manager.show()
         self._force_quit = False
+        self.stats_updated.connect(self.on_stats_updated)
         
         # Modern Frameless Setup
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowSystemMenuHint)
@@ -73,7 +77,7 @@ class MainWindow(QMainWindow):
         # Status Bar
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Ready")
+        self.status_bar.showMessage(_("main_ready"))
         
         self.load_stylesheet()
         self.setup_views()
@@ -97,15 +101,69 @@ class MainWindow(QMainWindow):
             base_dir = os.path.join(os.path.dirname(__file__), "..", "..")
             logo_path = os.path.join(os.path.dirname(__file__), "..", "assets", "logo.png")
 
+        # Main Header Left side layout (Logo + vertical line divider + brand text)
+        header_left_widget = QWidget()
+        header_left_widget.setStyleSheet("background: transparent;")
+        header_left_layout = QHBoxLayout(header_left_widget)
+        header_left_layout.setContentsMargins(0, 0, 0, 0)
+        header_left_layout.setSpacing(14)
+        header_left_layout.setAlignment(Qt.AlignVCenter)
+        
+        # 1. Logo (scaled larger to match text height)
         if os.path.exists(logo_path):
             logo_label = QLabel()
             pixmap = QPixmap(logo_path)
-            logo_label.setPixmap(pixmap.scaled(40, 40, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-            self.header_layout.addWidget(logo_label)
+            logo_label.setPixmap(pixmap.scaled(56, 56, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            header_left_layout.addWidget(logo_label)
             
-        brand = QLabel("BAHAA<span style='color: #6366F1;'>IT</span>")
-        brand.setObjectName("LogoLabel")
-        self.header_layout.addWidget(brand)
+        # 2. Vertical separator line (between logo and text)
+        v_line = QFrame()
+        v_line.setFrameShape(QFrame.VLine)
+        v_line.setFrameShadow(QFrame.Plain)
+        v_line.setFixedWidth(1)
+        v_line.setStyleSheet("background-color: rgba(255, 255, 255, 0.15); margin-top: 2px; margin-bottom: 2px; border: none;")
+        header_left_layout.addWidget(v_line)
+        
+        # 3. Brand Text Container
+        brand_container = QWidget()
+        brand_container.setStyleSheet("background: transparent;")
+        brand_layout = QVBoxLayout(brand_container)
+        brand_layout.setContentsMargins(0, 0, 0, 0)
+        brand_layout.setSpacing(2)
+        brand_layout.setAlignment(Qt.AlignVCenter)
+        
+        top_label = QLabel("Bahaa<span style='color: #6366F1;'>IT</span>")
+        top_label.setStyleSheet("font-size: 26px; font-weight: 900; color: #FFFFFF; font-family: 'Outfit', 'Inter', sans-serif; line-height: 1.0; margin: 0px; padding: 0px;")
+        
+        # Horizontal cyan line with dot (exactly matching the BahaaIT width)
+        line_container = QWidget()
+        line_container.setFixedHeight(5)
+        line_container.setFixedWidth(118)
+        line_layout = QHBoxLayout(line_container)
+        line_layout.setContentsMargins(0, 0, 0, 0)
+        line_layout.setSpacing(0)
+        
+        line = QFrame()
+        line.setFixedHeight(2)
+        line.setStyleSheet("background-color: #06B6D4; border-radius: 1px;")
+        
+        dot = QFrame()
+        dot.setFixedSize(5, 5)
+        dot.setStyleSheet("background-color: #06B6D4; border-radius: 2.5px;")
+        
+        line_layout.addWidget(line, 1)
+        line_layout.addWidget(dot, 0)
+        
+        # Bottom label: Network tools
+        bottom_label = QLabel("<span style='color: #06B6D4;'>Network</span> <span style='color: #6366F1;'>tools</span>")
+        bottom_label.setStyleSheet("font-size: 15px; font-weight: 700; font-family: 'Outfit', 'Inter', sans-serif; line-height: 1.0; margin: 0px; padding: 0px;")
+        
+        brand_layout.addWidget(top_label)
+        brand_layout.addWidget(line_container)
+        brand_layout.addWidget(bottom_label)
+        
+        header_left_layout.addWidget(brand_container)
+        self.header_layout.addWidget(header_left_widget)
         
         # Application Version (Read from utils.updater)
         from utils.updater import CURRENT_VERSION
@@ -121,10 +179,10 @@ class MainWindow(QMainWindow):
         self.quick_stats = QHBoxLayout()
         self.quick_stats.setSpacing(40)
         
-        self.hostname_stat = self._create_stat_widget("HOSTNAME", "Loading...")
-        self.local_ip_stat = self._create_stat_widget("LOCAL IP", "0.0.0.0")
-        self.public_ip_stat = self._create_stat_widget("PUBLIC IP", "---.---.---.---")
-        self.conn_stat = self._create_stat_widget("CONNECTION", "Checking...")
+        self.hostname_stat = self._create_stat_widget("HOSTNAME", _("hostname", "HOSTNAME"), "Loading...")
+        self.local_ip_stat = self._create_stat_widget("LOCAL IP", _("local_ip", "LOCAL IP"), "0.0.0.0")
+        self.public_ip_stat = self._create_stat_widget("PUBLIC IP", _("public_ip", "PUBLIC IP"), "---.---.---.---")
+        self.conn_stat = self._create_stat_widget("CONNECTION", _("connection", "CONNECTION"), "Checking...")
         
         self.quick_stats.addLayout(self.conn_stat)
         self.quick_stats.addLayout(self.hostname_stat)
@@ -157,56 +215,62 @@ class MainWindow(QMainWindow):
         self.header_timer.timeout.connect(self.update_header_stats)
         self.header_timer.start(10000)
 
-    def _create_stat_widget(self, label, value):
+    def _create_stat_widget(self, key, display_text, value):
         layout = QVBoxLayout()
         layout.setSpacing(2)
-        l = QLabel(label)
+        l = QLabel(display_text)
         l.setObjectName("SubTitle")
         l.setStyleSheet("font-size: 10px; color: #8f9bb3;")
         v = QLabel(value)
         v.setStyleSheet("font-size: 13px; font-weight: bold; color: #ffffff;")
         layout.addWidget(l)
         layout.addWidget(v)
-        # Store ref to value label
+        # Store ref to value label using internal key
         if not hasattr(self, "_header_labels"): self._header_labels = {}
-        self._header_labels[label] = v
+        self._header_labels[key] = v
         return layout
+
+    def on_stats_updated(self, data):
+        self._header_labels["HOSTNAME"].setText(data["hostname"])
+        self._header_labels["LOCAL IP"].setText(data["local_ip"])
+        self._header_labels["PUBLIC IP"].setText(data["public_ip"])
+        self._header_labels["CONNECTION"].setText(data["conn_text"])
+        self._header_labels["CONNECTION"].setStyleSheet(f"font-size: 13px; font-weight: bold; color: {data['color']};")
 
     def update_header_stats(self):
         import threading
         from core.tools import NetworkTools
         
         def _fetch_all():
-            # 1. Local Info
-            local_info = NetworkTools.get_local_info()
-            # 2. Public IP
-            pub_ip = NetworkTools.get_public_ip()
-            
-            # 3. Connection Status
-            conn_status = NetworkTools.get_connection_status()
-            
-            conn_text = f"{conn_status['ssid']} ({conn_status['signal']})" if conn_status['signal'] else conn_status['ssid']
-            if conn_status['type'] == 'wifi':
-                conn_text = f"📶 {conn_text}"
-                color = "#10B981" # Green
-            elif conn_status['type'] == 'ethernet':
-                conn_text = f"🖧 {conn_text}"
-                color = "#6366F1" # Blue
-            else:
-                conn_text = "❌ Offline"
-                color = "#EF4444" # Red
-            
-            # Update UI (PySide6 allows simple setText from threads usually, 
-            # but for safety we could use signals. Here we'll stick to direct for simplicity 
-            # as it works well in most cases with these basic widgets)
-            self._header_labels["HOSTNAME"].setText(local_info["hostname"])
-            self._header_labels["LOCAL IP"].setText(local_info["local_ip"])
-            self._header_labels["PUBLIC IP"].setText(pub_ip)
-            self._header_labels["CONNECTION"].setText(conn_text)
-            self._header_labels["CONNECTION"].setStyleSheet(f"font-size: 13px; font-weight: bold; color: {color};")
-            
-            if hasattr(self, "dashboard"):
-                pass
+            try:
+                # 1. Local Info
+                local_info = NetworkTools.get_local_info()
+                # 2. Public IP
+                pub_ip = NetworkTools.get_public_ip()
+                
+                # 3. Connection Status
+                conn_status = NetworkTools.get_connection_status()
+                
+                conn_text = f"{conn_status['ssid']} ({conn_status['signal']})" if conn_status['signal'] else conn_status['ssid']
+                if conn_status['type'] == 'wifi':
+                    conn_text = f"📶 {conn_text}"
+                    color = "#10B981" # Green
+                elif conn_status['type'] == 'ethernet':
+                    conn_text = f"🖧 {conn_text}"
+                    color = "#6366F1" # Blue
+                else:
+                    conn_text = _("main_offline")
+                    color = "#EF4444" # Red
+                
+                self.stats_updated.emit({
+                    "hostname": local_info.get("hostname", "Unknown"),
+                    "local_ip": local_info.get("local_ip", "0.0.0.0"),
+                    "public_ip": pub_ip,
+                    "conn_text": conn_text,
+                    "color": color
+                })
+            except Exception as e:
+                self.logger.error(f"Error fetching header stats: {e}")
 
         threading.Thread(target=_fetch_all, daemon=True).start()
 
@@ -221,24 +285,24 @@ class MainWindow(QMainWindow):
         
         # Navigation Groups
         nav_groups = [
-            ("Monitoring", [
-                ("Dashboard", 0, "dashboard.svg"),
-                ("Live Monitoring", 1, "activity.svg"),
-                ("Global Status", 9, "globe.svg"),
+            (_("group_monitoring", "Monitoring"), [
+                (_("nav_dashboard", "Dashboard"), 0, "dashboard.svg"),
+                (_("nav_live_monitoring", "Live Monitoring"), 1, "activity.svg"),
+                (_("nav_global_status", "Global Status"), 9, "globe.svg"),
             ]),
-            ("Tools", [
-                ("Network Scanners", 3, "search.svg"),
-                ("IT Toolbox", 2, "tool.svg"),
-                ("Performance Test", 6, "zap.svg"),
+            (_("group_tools", "Tools"), [
+                (_("nav_scanners", "Network Scanners"), 3, "search.svg"),
+                (_("nav_toolbox", "IT Toolbox"), 2, "tool.svg"),
+                (_("nav_speedtest", "Performance Test"), 6, "zap.svg"),
             ]),
-            ("Management", [
-                ("Web Manager", 7, "browser.svg"),
-                ("Remote Terminal", 8, "terminal.svg"),
-                ("Sites Manager", 10, "layers.svg"),
+            (_("group_management", "Management"), [
+                (_("nav_web_manager", "Web Manager"), 7, "browser.svg"),
+                (_("nav_remote", "Remote Terminal"), 8, "terminal.svg"),
+                (_("nav_sites", "Sites Manager"), 10, "layers.svg"),
             ]),
-            ("System", [
-                ("Network Config", 4, "sliders.svg"),
-                ("App Settings", 5, "settings.svg"),
+            (_("group_system", "System"), [
+                (_("nav_net_config", "Network Config"), 4, "sliders.svg"),
+                (_("nav_settings", "App Settings"), 5, "settings.svg"),
             ])
         ]
         
@@ -309,9 +373,6 @@ class MainWindow(QMainWindow):
         elif index == 9 and self.service_status_view is None:
             from ui.widgets.service_status_view import ServiceStatusView
             self.service_status_view = ServiceStatusView(self.logger)
-            self.service_status_view.service_alert.connect(
-                lambda name, status: self.tray_manager.notify("Service Alert", f"Global Service '{name}' is currently {status}!")
-            )
             self._replace_placeholder(9, self.service_status_view)
             
         elif index == 10 and self.sites_view is None:
@@ -334,7 +395,7 @@ class MainWindow(QMainWindow):
         self.animation.start()
 
     def setup_views(self):
-        self.dashboard = DashboardView(self.logger)
+        self.dashboard = DashboardView(self.logger, self.config_manager)
         self.monitor = MonitorView(self.logger, self.alarm_manager, self.config_manager)
         self.tools = ToolsView(self.logger)
         self.scanner = ScannerView(self.logger)
@@ -397,7 +458,7 @@ class MainWindow(QMainWindow):
         if self.config_manager.get("minimize_to_tray", False):
             event.ignore()
             self.hide()
-            self.tray_manager.notify("BahaaIT Hidden", "App is still running in the background.")
+            self.tray_manager.notify(_("tray_hidden_title"), _("tray_hidden_msg"))
         else:
             event.accept()
             import os

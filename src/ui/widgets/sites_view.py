@@ -9,6 +9,7 @@ import platform
 import threading
 import csv
 import os
+from utils.i18n import _
 
 class PingWorker(QThread):
     """Worker thread for pinging a single host."""
@@ -65,13 +66,13 @@ class SitesView(QWidget):
         header_row = QHBoxLayout()
         header_row.setContentsMargins(0, 0, 0, 0)
         
-        header = QLabel("Sites & Equipment Manager")
+        header = QLabel(_("sites_header_title"))
         header.setObjectName("Title")
         header_row.addWidget(header)
         
         header_row.addStretch()
         
-        self.ping_all_btn = QPushButton("  Ping All")
+        self.ping_all_btn = QPushButton(_("sites_ping_all"))
         self.ping_all_btn.setObjectName("PrimaryButton")
         self._set_btn_icon(self.ping_all_btn, "activity.svg")
         self.ping_all_btn.setFixedHeight(38)
@@ -91,25 +92,25 @@ class SitesView(QWidget):
         form_layout.setSpacing(12)
         
         self.name_input = QLineEdit()
-        self.name_input.setPlaceholderText("Equipment Name (e.g. Peplink 1)")
+        self.name_input.setPlaceholderText(_("sites_placeholder_name"))
         self.name_input.setFixedHeight(35)
         
         self.ip_input = QLineEdit()
-        self.ip_input.setPlaceholderText("IP Address or URL")
+        self.ip_input.setPlaceholderText(_("sites_placeholder_ip"))
         self.ip_input.setFixedHeight(35)
         
         self.site_input = QLineEdit()
-        self.site_input.setPlaceholderText("Site Name (e.g. Paris Office)")
+        self.site_input.setPlaceholderText(_("sites_placeholder_site"))
         self.site_input.setFixedHeight(35)
         
-        self.add_btn = QPushButton("Add Equipment")
+        self.add_btn = QPushButton(_("sites_add_btn"))
         self.add_btn.setObjectName("PrimaryButton")
         self.add_btn.setFixedHeight(35)
         self.add_btn.setMinimumWidth(150)
         self.add_btn.setCursor(Qt.PointingHandCursor)
         self.add_btn.clicked.connect(self.add_site)
         
-        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn = QPushButton(_("sites_cancel_btn"))
         self.cancel_btn.setObjectName("DangerButton")
         self.cancel_btn.setFixedHeight(35)
         self.cancel_btn.setMinimumWidth(90)
@@ -131,21 +132,21 @@ class SitesView(QWidget):
         toolbar_row.setSpacing(12)
         
         # Filter by Site
-        filter_label = QLabel("Filter by Site:")
+        filter_label = QLabel(_("sites_filter_label"))
         filter_label.setStyleSheet("color: #94A3B8; font-weight: 600; font-size: 12px; margin-bottom: 0px;")
         toolbar_row.addWidget(filter_label)
         
         self.site_filter = QComboBox()
         self.site_filter.setFixedHeight(35)
         self.site_filter.setMinimumWidth(180)
-        self.site_filter.addItem("All Sites")
+        self.site_filter.addItem(_("sites_filter_all"))
         self.site_filter.currentIndexChanged.connect(self.apply_filter)
         toolbar_row.addWidget(self.site_filter)
         
         toolbar_row.addStretch()
         
         # Import CSV Button
-        self.import_btn = QPushButton(" Import CSV")
+        self.import_btn = QPushButton(_("sites_import_csv"))
         self.import_btn.setObjectName("SecondaryButton")
         self._set_btn_icon(self.import_btn, "layers.svg")
         self.import_btn.setFixedHeight(35)
@@ -155,7 +156,7 @@ class SitesView(QWidget):
         toolbar_row.addWidget(self.import_btn)
         
         # Export PDF Button
-        self.export_btn = QPushButton(" Export PDF")
+        self.export_btn = QPushButton(_("sites_export_pdf_btn"))
         self.export_btn.setObjectName("SecondaryButton")
         self._set_btn_icon(self.export_btn, "history.svg") # Using history as a 'report' icon
         self.export_btn.setFixedHeight(35)
@@ -168,7 +169,7 @@ class SitesView(QWidget):
         
         # ── Equipment Table ──
         self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["Name", "IP Address", "Site", "Status", "Actions"])
+        self.table.setHorizontalHeaderLabels([_("sites_col_name"), _("sites_col_ip"), _("sites_col_site"), _("sites_col_status"), _("sites_col_actions")])
         
         # Table Alignment & Sizing
         header = self.table.horizontalHeader()
@@ -231,7 +232,7 @@ class SitesView(QWidget):
         site = self.site_input.text().strip()
         
         if not name or not ip:
-            QMessageBox.warning(self, "Error", "Name and IP are required.")
+            QMessageBox.warning(self, _("msg_error"), _("sites_error_required"))
             return
         
         sites = self.config.get("sites")
@@ -262,7 +263,7 @@ class SitesView(QWidget):
             self.name_input.setText(site["name"])
             self.ip_input.setText(site["ip"])
             self.site_input.setText(site.get("site", ""))
-            self.add_btn.setText("Save Changes")
+            self.add_btn.setText(_("sites_save_btn"))
             self.add_btn.setStyleSheet("background-color: #F59E0B; color: #000;")
             self.cancel_btn.setVisible(True)
             self.name_input.setFocus()
@@ -277,7 +278,7 @@ class SitesView(QWidget):
     def _exit_edit_mode(self):
         """Reset form back to add mode."""
         self._editing_index = -1
-        self.add_btn.setText("Add Equipment")
+        self.add_btn.setText(_("sites_add_btn"))
         self.add_btn.setStyleSheet("")
         self.cancel_btn.setVisible(False)
 
@@ -299,7 +300,7 @@ class SitesView(QWidget):
         current_filter = self.site_filter.currentText()
         self.site_filter.blockSignals(True)
         self.site_filter.clear()
-        self.site_filter.addItem("All Sites")
+        self.site_filter.addItem(_("sites_filter_all"))
         
         unique_sites = sorted(set(s.get("site", "") for s in sites if s.get("site", "")))
         for site_name in unique_sites:
@@ -314,7 +315,7 @@ class SitesView(QWidget):
     def _populate_table(self, sites):
         active_filter = self.site_filter.currentText()
         
-        if active_filter != "All Sites":
+        if active_filter != _("sites_filter_all"):
             filtered = [s for s in sites if s.get("site", "") == active_filter]
         else:
             filtered = sites
@@ -363,7 +364,7 @@ class SitesView(QWidget):
             ping_btn = QPushButton()
             ping_btn.setFixedSize(32, 32)
             ping_btn.setCursor(Qt.PointingHandCursor)
-            ping_btn.setToolTip("Quick Ping")
+            ping_btn.setToolTip(_("sites_tooltip_ping"))
             self._set_btn_icon(ping_btn, "zap.svg")
             ping_btn.setStyleSheet("background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 6px;")
             ping_btn.clicked.connect(lambda checked, r=row, s=site: self.quick_ping(r, s))
@@ -371,7 +372,7 @@ class SitesView(QWidget):
             browse_btn = QPushButton()
             browse_btn.setFixedSize(32, 32)
             browse_btn.setCursor(Qt.PointingHandCursor)
-            browse_btn.setToolTip("Open in Web Manager")
+            browse_btn.setToolTip(_("sites_tooltip_browse"))
             self._set_btn_icon(browse_btn, "browser.svg")
             browse_btn.setStyleSheet("background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 6px;")
             browse_btn.clicked.connect(lambda checked, s=site: self.open_in_browser.emit(s["ip"]))
@@ -379,7 +380,7 @@ class SitesView(QWidget):
             edit_btn = QPushButton()
             edit_btn.setFixedSize(32, 32)
             edit_btn.setCursor(Qt.PointingHandCursor)
-            edit_btn.setToolTip("Edit")
+            edit_btn.setToolTip(_("sites_tooltip_edit"))
             self._set_btn_icon(edit_btn, "edit.svg")
             edit_btn.setStyleSheet("background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 6px;")
             edit_btn.clicked.connect(lambda checked, idx=real_index: self.edit_site(idx))
@@ -387,7 +388,7 @@ class SitesView(QWidget):
             delete_btn = QPushButton()
             delete_btn.setFixedSize(32, 32)
             delete_btn.setCursor(Qt.PointingHandCursor)
-            delete_btn.setToolTip("Delete")
+            delete_btn.setToolTip(_("sites_tooltip_delete"))
             self._set_btn_icon(delete_btn, "trash.svg")
             delete_btn.setStyleSheet("background: rgba(244, 63, 94, 0.1); border: 1px solid rgba(244, 63, 94, 0.2); border-radius: 6px;")
             delete_btn.clicked.connect(lambda checked, idx=real_index: self.delete_site(idx))
@@ -401,7 +402,7 @@ class SitesView(QWidget):
         total = len(self.config.get("sites"))
         shown = len(filtered)
         unique_sites_count = len(set(s.get("site", "") for s in self.config.get("sites") if s.get("site", "")))
-        self.stats_label.setText(f"Showing {shown} of {total} equipment(s)  •  {unique_sites_count} site(s)")
+        self.stats_label.setText(_("sites_stats_template").format(shown, total, unique_sites_count))
 
     # ───────────────────────── Filter ─────────────────────────
     
@@ -422,17 +423,18 @@ class SitesView(QWidget):
         
         worker = PingWorker(row, clean_ip)
         worker.result.connect(self._update_ping_result)
+        worker.finished.connect(worker.deleteLater)
         worker.start()
         self.ping_workers.append(worker)
     
     def ping_all(self):
         self.ping_all_btn.setEnabled(False)
-        self.ping_all_btn.setText(" Pinging...")
+        self.ping_all_btn.setText(_("sites_pinging"))
         
         row_count = self.table.rowCount()
         if row_count == 0:
             self.ping_all_btn.setEnabled(True)
-            self.ping_all_btn.setText(" Ping All")
+            self.ping_all_btn.setText(_("sites_ping_all"))
             return
         
         self._pending_pings = row_count
@@ -450,6 +452,7 @@ class SitesView(QWidget):
                 worker = PingWorker(row, clean_ip)
                 worker.result.connect(self._update_ping_result)
                 worker.result.connect(self._check_ping_all_done)
+                worker.finished.connect(worker.deleteLater)
                 worker.start()
                 self.ping_workers.append(worker)
     
@@ -462,7 +465,7 @@ class SitesView(QWidget):
             status_item.setText(f"{latency:.0f} ms")
             status_item.setForeground(QColor("#10B981"))
         else:
-            status_item.setText("Down")
+            status_item.setText(_("sites_status_down"))
             status_item.setForeground(QColor("#F43F5E"))
     
     def _check_ping_all_done(self, row, status, latency):
@@ -470,8 +473,9 @@ class SitesView(QWidget):
             self._pending_pings -= 1
             if self._pending_pings <= 0:
                 self.ping_all_btn.setEnabled(True)
-                self.ping_all_btn.setText(" Ping All")
+                self.ping_all_btn.setText(_("sites_ping_all"))
                 del self._pending_pings
+                self.ping_workers.clear()
     
     def _clean_ip(self, ip):
         import re
@@ -480,7 +484,7 @@ class SitesView(QWidget):
         return ip
 
     def import_csv(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Import Equipment from CSV", "", "CSV Files (*.csv)")
+        file_path, _filter = QFileDialog.getOpenFileName(self, _("sites_import_title"), "", "CSV Files (*.csv)")
         if not file_path: return
         try:
             imported = 0
@@ -496,18 +500,18 @@ class SitesView(QWidget):
                         imported += 1
             self.config.set("sites", sites)
             self.refresh_table()
-            QMessageBox.information(self, "Import Complete", f"Imported {imported} equipment(s).")
+            QMessageBox.information(self, _("sites_import_complete"), _("sites_import_complete_msg").format(imported))
         except Exception as e:
-            QMessageBox.critical(self, "Import Error", str(e))
+            QMessageBox.critical(self, _("sites_import_error"), str(e))
 
     def export_pdf(self):
-        file_path, _ = QFileDialog.getSaveFileName(self, "Export to PDF", "BahaaIT_Report.pdf", "PDF Files (*.pdf)")
+        file_path, _filter = QFileDialog.getSaveFileName(self, _("sites_export_title"), "BahaaIT_Report.pdf", "PDF Files (*.pdf)")
         if not file_path: return
         try:
             from PySide6.QtGui import QTextDocument
             from PySide6.QtPrintSupport import QPrinter
             sites = self.config.get("sites")
-            html = "<h1>Sites & Equipment Report</h1><table><tr><th>#</th><th>Name</th><th>IP</th><th>Site</th></tr>"
+            html = f"<h1>{_('sites_report_title')}</h1><table><tr><th>#</th><th>{_('sites_col_name')}</th><th>IP</th><th>Site</th></tr>"
             for i, site in enumerate(sites, 1):
                 html += f"<tr><td>{i}</td><td>{site['name']}</td><td>{site['ip']}</td><td>{site.get('site', '—')}</td></tr>"
             html += "</table>"
@@ -517,6 +521,6 @@ class SitesView(QWidget):
             doc = QTextDocument()
             doc.setHtml(html)
             doc.print_(printer)
-            QMessageBox.information(self, "Export Complete", "PDF saved.")
+            QMessageBox.information(self, _("sites_export_complete"), _("sites_export_complete_msg"))
         except Exception as e:
-            QMessageBox.critical(self, "Export Error", str(e))
+            QMessageBox.critical(self, _("sites_export_error"), str(e))

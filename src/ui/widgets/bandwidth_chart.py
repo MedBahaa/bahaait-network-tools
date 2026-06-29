@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt, QTimer, QDateTime
 from PySide6.QtGui import QPainter, QPen, QColor, QLinearGradient, QGradient
 import psutil
 import time
+from utils.i18n import _
 
 class BandwidthChart(QWidget):
     def __init__(self, parent=None):
@@ -14,9 +15,9 @@ class BandwidthChart(QWidget):
 
         # Live speed indicators
         self.stats_layout = QHBoxLayout()
-        self.dl_indicator = QLabel("DOWNLOAD: 0.00 KB/s")
+        self.dl_indicator = QLabel(f"{_('bw_download')}: 0.00 KB/s")
         self.dl_indicator.setStyleSheet("color: #10B981; font-weight: bold; font-size: 14px;")
-        self.ul_indicator = QLabel("UPLOAD: 0.00 KB/s")
+        self.ul_indicator = QLabel(f"{_('bw_upload')}: 0.00 KB/s")
         self.ul_indicator.setStyleSheet("color: #6366F1; font-weight: bold; font-size: 14px;")
         self.stats_layout.addWidget(self.dl_indicator)
         self.stats_layout.addSpacing(20)
@@ -119,8 +120,8 @@ class BandwidthChart(QWidget):
                 dl_display = dl_speed_kb
                 ul_display = ul_speed_kb
 
-            self.dl_indicator.setText(f"DOWNLOAD: {dl_display:.2f} {display_unit}")
-            self.ul_indicator.setText(f"UPLOAD: {ul_display:.2f} {display_unit}")
+            self.dl_indicator.setText(f"{_('bw_download')}: {dl_display:.2f} {display_unit}")
+            self.ul_indicator.setText(f"{_('bw_upload')}: {ul_display:.2f} {display_unit}")
             
             # Store for external access (in Mbps for gauges)
             self.current_dl_mbps = dl_speed_kb * 8 / 1024 # KB/s to Mbps

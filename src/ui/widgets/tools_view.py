@@ -2,6 +2,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QLineEdit, QTextEdit, QComboBox, QTabWidget, QTabBar, QCheckBox, QSpinBox, QFileDialog)
 from PySide6.QtCore import Qt, QThread, Signal
 from core.tools import NetworkTools
+from utils.i18n import _
 
 class UniversalToolWorker(QThread):
     output_ready = Signal(str)
@@ -35,14 +36,14 @@ class UniversalToolWorker(QThread):
                 res = NetworkTools.netstat()
                 self.output_ready.emit(res)
             elif self.tool_name == "Whois":
-                self.output_ready.emit("Fetching RDAP info...")
+                self.output_ready.emit(_("tool_fetching_rdap"))
                 res = NetworkTools.whois(self.target)
                 self.output_ready.emit(res)
             elif self.tool_name == "Port Checker":
                 res = NetworkTools.check_port(self.target, self.port)
                 self.output_ready.emit(res)
             elif self.tool_name == "Load Balancing":
-                self.output_ready.emit("Checking multi-provider IP status...")
+                self.output_ready.emit(_("tool_checking_multi_ip"))
                 res = NetworkTools.get_multi_public_ips()
                 self.output_ready.emit(res)
             elif self.tool_name == "Traceroute":
@@ -52,18 +53,16 @@ class UniversalToolWorker(QThread):
                     self.output_ready.emit(line.strip())
                 self._process.wait()
         except Exception as e:
-            self.output_ready.emit(f"Error executing {self.tool_name}: {str(e)}")
+            self.output_ready.emit(_("tool_error_exec").format(self.tool_name, str(e)))
 
     def stop(self):
         self.is_running = False
         if self._process:
             try:
                 self._process.terminate()
-            except:
+            except Exception:
                 pass
             self._process = None
-        self.terminate()
-        self.wait()
 
 class TerminalTab(QWidget):
     def __init__(self, tool_name, target, worker):
@@ -82,16 +81,16 @@ class TerminalTab(QWidget):
         toolbar_layout = QHBoxLayout(self.toolbar)
         toolbar_layout.setContentsMargins(15, 0, 15, 0)
         
-        self.status_label = QLabel("● RUNNING")
+        self.status_label = QLabel(_("tool_status_running"))
         self.status_label.setStyleSheet("color: #6366F1; font-weight: bold; font-size: 11px;")
         
-        self.clear_btn = QPushButton("Clear")
+        self.clear_btn = QPushButton(_("tool_clear"))
         self.clear_btn.setFixedWidth(60)
         self.clear_btn.setCursor(Qt.PointingHandCursor)
         self.clear_btn.setStyleSheet("background: transparent; color: #94A3B8; border: none; font-size: 11px;")
         self.clear_btn.clicked.connect(self.clear_output)
         
-        self.export_btn = QPushButton("Export Log")
+        self.export_btn = QPushButton(_("tool_export_log"))
         self.export_btn.setFixedWidth(80)
         self.export_btn.setCursor(Qt.PointingHandCursor)
         self.export_btn.setStyleSheet("background: transparent; color: #94A3B8; border: none; font-size: 11px;")
@@ -165,15 +164,15 @@ class TerminalTab(QWidget):
         self.output.clear()
         
     def export_log(self):
-        file_path, _ = QFileDialog.getSaveFileName(self, "Export Terminal Log", f"log_{self.tool_name}_{self.target}.txt", "Text Files (*.txt)")
+        file_path, _filter = QFileDialog.getSaveFileName(self, _("tool_export_log_title"), f"log_{self.tool_name}_{self.target}.txt", "Text Files (*.txt)")
         if file_path:
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(self.output.toPlainText())
 
     def on_finished(self):
-        self.status_label.setText("● FINISHED")
+        self.status_label.setText(_("tool_status_finished"))
         self.status_label.setStyleSheet("color: #10B981; font-weight: bold; font-size: 11px;")
-        self.output.append("<span style='color: #94A3B8;'>[PROCESS FINISHED]</span>")
+        self.output.append(f"<span style='color: #94A3B8;'>{_('tool_process_finished')}</span>")
 
 class ToolsView(QWidget):
     def __init__(self, logger):
@@ -185,7 +184,7 @@ class ToolsView(QWidget):
         self.layout.setContentsMargins(30, 30, 30, 30)
         
         # Header
-        header = QLabel("IT Terminal Hub")
+        header = QLabel(_("tool_hub_title"))
         header.setObjectName("Title")
         self.layout.addWidget(header)
         
@@ -205,32 +204,32 @@ class ToolsView(QWidget):
         self.tool_selector.currentIndexChanged.connect(self.on_tool_changed)
         
         self.target_input = QLineEdit()
-        self.target_input.setPlaceholderText("Target (IP or Domain)...")
+        self.target_input.setPlaceholderText(_("tool_placeholder_target"))
         self.target_input.setFixedHeight(35)
         self.target_input.setFixedWidth(220)
         self.target_input.returnPressed.connect(self.run_tool)
         
         self.port_input = QLineEdit()
-        self.port_input.setPlaceholderText("Port...")
+        self.port_input.setPlaceholderText(_("tool_placeholder_port"))
         self.port_input.setFixedWidth(80)
         self.port_input.setFixedHeight(35)
         self.port_input.setVisible(False)
         self.port_input.returnPressed.connect(self.run_tool)
         
         # Ping Options
-        self.ping_infinite_cb = QCheckBox("Infinite (-t)")
+        self.ping_infinite_cb = QCheckBox(_("tool_infinite_ping"))
         self.ping_infinite_cb.setFixedHeight(35)
         self.ping_infinite_cb.setStyleSheet("color: #94A3B8; font-weight: bold;")
         self.ping_infinite_cb.stateChanged.connect(self.on_tool_changed)
         
-        self.run_btn = QPushButton("NEW SESSION")
+        self.run_btn = QPushButton(_("tool_new_session"))
         self.run_btn.setObjectName("PrimaryButton")
         self.run_btn.setFixedHeight(35)
         self.run_btn.setMinimumWidth(150)
         self.run_btn.setCursor(Qt.PointingHandCursor)
         self.run_btn.clicked.connect(self.run_tool)
 
-        self.clear_all_btn = QPushButton("CLOSE ALL")
+        self.clear_all_btn = QPushButton(_("tool_close_all"))
         self.clear_all_btn.setObjectName("DangerButton")
         self.clear_all_btn.setFixedHeight(35)
         self.clear_all_btn.setMinimumWidth(120)
@@ -279,9 +278,9 @@ class ToolsView(QWidget):
         self.ping_infinite_cb.setVisible(is_ping)
         
         if is_port_check:
-            self.target_input.setPlaceholderText("Host...")
+            self.target_input.setPlaceholderText(_("tool_placeholder_host"))
         else:
-            self.target_input.setPlaceholderText("Target (IP or Domain)...")
+            self.target_input.setPlaceholderText(_("tool_placeholder_target"))
 
     def run_tool(self):
         tool = self.tool_selector.currentText()
@@ -313,6 +312,7 @@ class ToolsView(QWidget):
         # Store worker by widget ID
         self.active_workers[id(terminal_tab)] = worker
         
+        worker.finished.connect(worker.deleteLater)
         worker.start()
 
     def close_tab(self, index):

@@ -67,10 +67,22 @@ class DatabaseManager:
             
         # Using connect_args={'check_same_thread': False} for multithreaded PySide6 compatibility
         self.engine = create_engine(f"sqlite:///{self.db_path}", connect_args={'check_same_thread': False})
+        
+        from sqlalchemy import event
+        @event.listens_for(self.engine, "connect")
+        def set_sqlite_pragma(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            try:
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+            except Exception:
+                pass
+            finally:
+                cursor.close()
+
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
         
-        self._init_default_global_services()
         
         # Nettoyage automatique des anciens logs (> 30 jours) au démarrage
         try:
@@ -242,3 +254,144 @@ class DatabaseManager:
             res = [{"status": log.status, "latency": log.latency, "timestamp": log.timestamp} for log in logs]
             res.reverse()
             return res
+
+    def get_hosts_status_summary(self) -> Dict[str, int]:
+        try:
+            with self.Session() as session:
+                from sqlalchemy import func
+                # Subquery to get the latest timestamp per host
+                latest_sub = session.query(
+                    MonitoringLog.host_id,
+                    func.max(MonitoringLog.timestamp).label("max_ts")
+                ).group_by(MonitoringLog.host_id).subquery()
+                
+                # Join to get status of active hosts' latest logs
+                statuses = session.query(MonitoringLog.status).join(
+                    Host, Host.id == MonitoringLog.host_id
+                ).join(
+                    latest_sub,
+                    (MonitoringLog.host_id == latest_sub.c.host_id) &
+                    (MonitoringLog.timestamp == latest_sub.c.max_ts)
+                ).filter(Host.is_active == True).all()
+                
+                total = session.query(Host).filter_by(is_active=True).count()
+                up = sum(1 for (status,) in statuses if status == "UP")
+                return {"total": total, "up": up, "down": total - up}
+        except Exception as e:
+            print(f"DB Error (get_hosts_status_summary): {e}")
+            return {"total": 0, "up": 0, "down": 0}
+
+    def get_services_status_summary(self) -> Dict[str, int]:
+        try:
+            with self.Session() as session:
+                from sqlalchemy import func
+                # Subquery to get the latest timestamp per service
+                latest_sub = session.query(
+                    GlobalServiceLog.service_id,
+                    func.max(GlobalServiceLog.timestamp).label("max_ts")
+                ).group_by(GlobalServiceLog.service_id).subquery()
+                
+                # Join to get status of global services' latest logs
+                statuses = session.query(GlobalServiceLog.status).join(
+                    GlobalService, GlobalService.id == GlobalServiceLog.service_id
+                ).join(
+                    latest_sub,
+                    (GlobalServiceLog.service_id == latest_sub.c.service_id) &
+                    (GlobalServiceLog.timestamp == latest_sub.c.max_ts)
+                ).all()
+                
+                total = session.query(GlobalService).count()
+                ok = sum(1 for (status,) in statuses if status == "UP")
+                return {"total": total, "ok": ok}
+        except Exception as e:
+            print(f"DB Error (get_services_status_summary): {e}")
+            return {"total": 0, "ok": 0}
+
+    def get_average_latency(self) -> int:
+        try:
+            with self.Session() as session:
+                from sqlalchemy import func
+                # Subquery to get the latest timestamp per host
+                latest_sub = session.query(
+                    MonitoringLog.host_id,
+                    func.max(MonitoringLog.timestamp).label("max_ts")
+                ).group_by(MonitoringLog.host_id).subquery()
+                
+                # Join to get latency of active hosts' latest logs
+                latencies = session.query(MonitoringLog.latency).join(
+                    Host, Host.id == MonitoringLog.host_id
+                ).join(
+                    latest_sub,
+                    (MonitoringLog.host_id == latest_sub.c.host_id) &
+                    (MonitoringLog.timestamp == latest_sub.c.max_ts)
+                ).filter(Host.is_active == True, MonitoringLog.status == "UP", MonitoringLog.latency > 0).all()
+                
+                if not latencies:
+                    return 0
+                vals = [l for (l,) in latencies]
+                return int(sum(vals) / len(vals))
+        except Exception as e:
+            print(f"DB Error (get_average_latency): {e}")
+            return 0
+
+    def get_latest_alerts(self, limit: int = 5) -> List[Dict[str, Any]]:
+        try:
+            with self.Session() as session:
+                from sqlalchemy.orm import joinedload
+                # Eager load Host relation to avoid lazy-loading N+1 query issue inside loop
+                logs = session.query(MonitoringLog).options(
+                    joinedload(MonitoringLog.host)
+                ).join(Host).order_by(MonitoringLog.timestamp.desc()).limit(200).all()
+                
+                alerts = []
+                host_last_status = {}
+                ordered_logs = list(reversed(logs))
+                for log in ordered_logs:
+                    host_addr = log.host.address
+                    host_label = log.host.label or host_addr
+                    prev_status = host_last_status.get(host_addr)
+                    if prev_status is not None and prev_status != log.status:
+                        alerts.append({
+                            "timestamp": log.timestamp.strftime("%H:%M"),
+                            "host": host_label,
+                            "status": log.status,
+                            "time_obj": log.timestamp
+                        })
+                    elif prev_status is None and log.status == "DOWN":
+                        alerts.append({
+                            "timestamp": log.timestamp.strftime("%H:%M"),
+                            "host": host_label,
+                            "status": log.status,
+                            "time_obj": log.timestamp
+                        })
+                    host_last_status[host_addr] = log.status
+                
+                alerts.sort(key=lambda x: x["time_obj"], reverse=True)
+                return alerts[:limit]
+        except Exception as e:
+            print(f"DB Error (get_latest_alerts): {e}")
+            return []
+
+    def get_latest_speedtest(self) -> Optional[Dict[str, Any]]:
+        try:
+            with self.Session() as session:
+                t = session.query(SpeedTestLog).order_by(SpeedTestLog.timestamp.desc()).first()
+                if t:
+                    diff = datetime.utcnow() - t.timestamp
+                    if diff.days > 0:
+                        time_str = f"il y a {diff.days}j"
+                    elif diff.seconds >= 3600:
+                        time_str = f"il y a {diff.seconds // 3600}h"
+                    elif diff.seconds >= 60:
+                        time_str = f"il y a {diff.seconds // 60}m"
+                    else:
+                        time_str = "à l'instant"
+                    return {
+                        "download": t.download,
+                        "upload": t.upload,
+                        "time_str": time_str
+                    }
+                return None
+        except Exception as e:
+            print(f"DB Error (get_latest_speedtest): {e}")
+            return None

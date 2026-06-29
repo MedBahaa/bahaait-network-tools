@@ -5,6 +5,7 @@ from core.net_config import NetworkConfig
 from utils.admin import is_admin, run_as_admin
 import psutil
 import socket
+from utils.i18n import _
 
 class ConfigView(QWidget):
     def __init__(self, logger, config_manager=None):
@@ -15,7 +16,7 @@ class ConfigView(QWidget):
         self.layout.setContentsMargins(30, 30, 30, 30)
         
         # Header
-        header = QLabel("Network Interface Configuration")
+        header = QLabel(_("cfg_title"))
         header.setObjectName("Title")
         self.layout.addWidget(header)
         
@@ -28,10 +29,10 @@ class ConfigView(QWidget):
         banner_layout.setContentsMargins(15, 0, 15, 0)
         
         warn_icon = QLabel("⚠️")
-        warn_text = QLabel("Administrator privileges required to modify network settings.")
+        warn_text = QLabel(_("cfg_admin_warn"))
         warn_text.setStyleSheet("color: #FDBA74; font-weight: bold; border: none;")
         
-        self.elevate_btn = QPushButton("ELEVATE")
+        self.elevate_btn = QPushButton(_("cfg_elevate"))
         self.elevate_btn.setFixedWidth(80)
         self.elevate_btn.setStyleSheet("background-color: #FDBA74; color: #7C2D12; font-weight: bold; border-radius: 4px; font-size: 10px;")
         self.elevate_btn.clicked.connect(run_as_admin)
@@ -55,7 +56,7 @@ class ConfigView(QWidget):
         selector_layout.setSpacing(20)
         selector_layout.setAlignment(Qt.AlignVCenter)
         
-        l1 = QLabel("ACTIVE INTERFACE:")
+        l1 = QLabel(_("cfg_active_interface"))
         l1.setObjectName("SectionHeader")
         l1.setStyleSheet("margin-bottom: 0px;")
         
@@ -65,7 +66,7 @@ class ConfigView(QWidget):
         self.interface_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.interface_combo.currentIndexChanged.connect(self.load_current_settings)
         
-        refresh_btn = QPushButton("REFRESH")
+        refresh_btn = QPushButton(_("cfg_refresh"))
         refresh_btn.setFixedWidth(100)
         refresh_btn.setObjectName("SecondaryButton")
         refresh_btn.setFixedHeight(35)
@@ -106,35 +107,35 @@ class ConfigView(QWidget):
         self.ip_input.setPlaceholderText("0.0.0.0")
         self.ip_input.setFixedHeight(35)
         self.ip_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        grid.addLayout(create_field_group("IP ADDRESS:", self.ip_input), 0, 0)
+        grid.addLayout(create_field_group(_("cfg_ip_label"), self.ip_input), 0, 0)
         
         self.mask_input = QLineEdit()
         self.mask_input.setPlaceholderText("255.255.255.0")
         self.mask_input.setFixedHeight(35)
         self.mask_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        grid.addLayout(create_field_group("SUBNET MASK:", self.mask_input), 1, 0)
+        grid.addLayout(create_field_group(_("cfg_mask_label"), self.mask_input), 1, 0)
         
         self.gateway_input = QLineEdit()
         self.gateway_input.setPlaceholderText("0.0.0.0")
         self.gateway_input.setFixedHeight(35)
         self.gateway_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        grid.addLayout(create_field_group("GATEWAY:", self.gateway_input), 2, 0)
+        grid.addLayout(create_field_group(_("cfg_gateway_label"), self.gateway_input), 2, 0)
         
         # DNS Column (Right)
         self.dns1_input = QLineEdit()
         self.dns1_input.setPlaceholderText("8.8.8.8")
         self.dns1_input.setFixedHeight(35)
         self.dns1_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        grid.addLayout(create_field_group("PRIMARY DNS:", self.dns1_input), 0, 1)
+        grid.addLayout(create_field_group(_("cfg_dns1_label"), self.dns1_input), 0, 1)
         
         self.dns2_input = QLineEdit()
         self.dns2_input.setPlaceholderText("8.8.4.4")
         self.dns2_input.setFixedHeight(35)
         self.dns2_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        grid.addLayout(create_field_group("SECONDARY DNS:", self.dns2_input), 1, 1)
+        grid.addLayout(create_field_group(_("cfg_dns2_label"), self.dns2_input), 1, 1)
         
         # Help text / Info in empty grid spot
-        info_box = QLabel("Note: Static IP requires accurate Mask and Gateway values to maintain internet connectivity.")
+        info_box = QLabel(_("cfg_static_note"))
         info_box.setWordWrap(True)
         info_box.setStyleSheet("color: #64748B; font-style: italic; font-size: 11px;")
         grid.addWidget(info_box, 2, 1)
@@ -148,11 +149,11 @@ class ConfigView(QWidget):
         
         # Buttons
         btn_layout = QHBoxLayout()
-        self.apply_static_btn = QPushButton("Apply Static IP")
+        self.apply_static_btn = QPushButton(_("cfg_apply_static"))
         self.apply_static_btn.setObjectName("PrimaryButton")
         self.apply_static_btn.clicked.connect(self.apply_static)
         
-        self.apply_dhcp_btn = QPushButton("Set to DHCP")
+        self.apply_dhcp_btn = QPushButton(_("cfg_set_dhcp"))
         self.apply_dhcp_btn.setObjectName("SecondaryButton")
         self.apply_dhcp_btn.clicked.connect(self.apply_dhcp)
         
@@ -196,7 +197,7 @@ class ConfigView(QWidget):
 
     def apply_static(self):
         if not is_admin():
-            QMessageBox.warning(self, "Admin Required", "This action requires administrator privileges.")
+            QMessageBox.warning(self, _("cfg_admin_required"), _("cfg_admin_required_msg"))
             return
             
         interface = self.interface_combo.currentText()
@@ -209,17 +210,17 @@ class ConfigView(QWidget):
         success = NetworkConfig.set_static_ip(interface, ip, mask, gw)
         if success:
             NetworkConfig.set_dns(interface, dns1, dns2)
-            QMessageBox.information(self, "Success", "Static IP settings applied successfully.")
+            QMessageBox.information(self, _("msg_success"), _("cfg_static_success"))
         else:
-            QMessageBox.critical(self, "Error", "Failed to apply static IP settings.")
+            QMessageBox.critical(self, _("msg_error"), _("cfg_static_error"))
 
     def apply_dhcp(self):
         if not is_admin():
-            QMessageBox.warning(self, "Admin Required", "This action requires administrator privileges.")
+            QMessageBox.warning(self, _("cfg_admin_required"), _("cfg_admin_required_msg"))
             return
             
         interface = self.interface_combo.currentText()
         if NetworkConfig.set_dhcp(interface):
-            QMessageBox.information(self, "Success", f"{interface} set to DHCP.")
+            QMessageBox.information(self, _("msg_success"), _("cfg_dhcp_success").format(interface))
         else:
-            QMessageBox.critical(self, "Error", "Failed to set DHCP.")
+            QMessageBox.critical(self, _("msg_error"), _("cfg_dhcp_error"))

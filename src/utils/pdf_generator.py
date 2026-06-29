@@ -1,9 +1,10 @@
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from datetime import datetime
 import os
+from utils.i18n import _
 
 class PDFReportGenerator:
     def __init__(self, filename="BahaaIT_Network_Report.pdf"):
@@ -28,22 +29,50 @@ class PDFReportGenerator:
             alignment=1,
             spaceAfter=20
         ))
+        
+        self.styles.add(ParagraphStyle(
+            name='LogLine',
+            parent=self.styles['Normal'],
+            fontName='Courier',
+            fontSize=8,
+            leading=10,
+            textColor=colors.HexColor('#334155'),
+            spaceAfter=2
+        ))
 
-    def generate_monitor_report(self, data, save_path=None):
+    def generate_monitor_report(self, data, save_path=None, event_log_text=None):
         if not save_path:
             save_path = os.path.join(os.path.expanduser("~"), "Desktop", self.filename)
             
-        doc = SimpleDocTemplate(save_path, pagesize=letter)
+        doc = SimpleDocTemplate(
+            save_path,
+            pagesize=letter,
+            title="BahaaIT Network Diagnostics Report",
+            author="BahaaIT Network Tools",
+            creator="BahaaIT Network Tools"
+        )
         elements = []
         
-        # Header
-        elements.append(Paragraph("BahaaIT Enterprise Suite", self.styles['ReportTitle']))
-        elements.append(Paragraph(f"Network Diagnostics & Monitoring Report", self.styles['Subtitle']))
-        elements.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", self.styles['Subtitle']))
+        # Logo & Header
+        import sys
+        if getattr(sys, 'frozen', False):
+            logo_path = os.path.join(sys._MEIPASS, "src", "assets", "logo.png")
+        else:
+            logo_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "assets", "logo.png"))
+            
+        if os.path.exists(logo_path):
+            logo = Image(logo_path, width=50, height=50)
+            logo.hAlign = 'CENTER'
+            elements.append(logo)
+            elements.append(Spacer(1, 10))
+
+        elements.append(Paragraph("BahaaIT Network Tools", self.styles['ReportTitle']))
+        elements.append(Paragraph(_("pdf_monitor_subtitle"), self.styles['Subtitle']))
+        elements.append(Paragraph(_("pdf_generated").format(datetime.now().strftime('%Y-%m-%d %H:%M:%S')), self.styles['Subtitle']))
         elements.append(Spacer(1, 20))
         
         # Data Table
-        table_data = [['Device Name', 'IP/Hostname', 'Status', 'Latency']]
+        table_data = [[_("pdf_table_device"), _("pdf_table_ip"), _("pdf_table_status"), _("pdf_table_latency")]]
         
         # data is expected to be a list of dicts: {"label": "Router", "ip": "192.168.1.1", "status": "UP", "latency": 15}
         for item in data:
@@ -83,6 +112,27 @@ class PDFReportGenerator:
         table.setStyle(style)
         elements.append(table)
         
+        # Add Event Log if provided
+        if event_log_text:
+            elements.append(Spacer(1, 25))
+            
+            # Heading for Event Log
+            h2_style = ParagraphStyle(
+                name='SectionHeader',
+                parent=self.styles['Heading2'],
+                fontSize=14,
+                spaceAfter=10,
+                textColor=colors.HexColor('#1E293B')
+            )
+            elements.append(Paragraph(_("pdf_event_log"), h2_style))
+            
+            # Formatting log lines
+            log_lines = event_log_text.split('\n')
+            for line in log_lines:
+                line = line.strip()
+                if line:
+                    elements.append(Paragraph(line, self.styles['LogLine']))
+        
         # Build PDF
         try:
             doc.build(elements)
@@ -94,17 +144,35 @@ class PDFReportGenerator:
         if not save_path:
             save_path = os.path.join(os.path.expanduser("~"), "Desktop", "BahaaIT_Speedtest_Report.pdf")
             
-        doc = SimpleDocTemplate(save_path, pagesize=letter)
+        doc = SimpleDocTemplate(
+            save_path,
+            pagesize=letter,
+            title="BahaaIT Speedtest Report",
+            author="BahaaIT Network Tools",
+            creator="BahaaIT Network Tools"
+        )
         elements = []
         
-        # Header
-        elements.append(Paragraph("BahaaIT Enterprise Suite", self.styles['ReportTitle']))
-        elements.append(Paragraph("Network Speed & Performance Report", self.styles['Subtitle']))
-        elements.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", self.styles['Subtitle']))
+        # Logo & Header
+        import sys
+        if getattr(sys, 'frozen', False):
+            logo_path = os.path.join(sys._MEIPASS, "src", "assets", "logo.png")
+        else:
+            logo_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "assets", "logo.png"))
+            
+        if os.path.exists(logo_path):
+            logo = Image(logo_path, width=50, height=50)
+            logo.hAlign = 'CENTER'
+            elements.append(logo)
+            elements.append(Spacer(1, 10))
+
+        elements.append(Paragraph("BahaaIT Network Tools", self.styles['ReportTitle']))
+        elements.append(Paragraph(_("pdf_speedtest_subtitle"), self.styles['Subtitle']))
+        elements.append(Paragraph(_("pdf_generated").format(datetime.now().strftime('%Y-%m-%d %H:%M:%S')), self.styles['Subtitle']))
         elements.append(Spacer(1, 20))
         
         # Data Table
-        table_data = [['Date/Time', 'Down (Mbps)', 'Up (Mbps)', 'Ping (ms)', 'Jitter', 'Loss %']]
+        table_data = [[_("pdf_table_datetime"), _("pdf_table_down"), _("pdf_table_up"), _("pdf_table_ping"), _("pdf_table_jitter"), _("pdf_table_loss")]]
         
         for item in data:
             table_data.append([

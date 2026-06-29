@@ -8,7 +8,7 @@ def build():
     main_script = os.path.join(src_dir, "main.py")
     
     # 1. Automatically extract version from updater.py
-    version = "1.0.0"
+    version = "2.0.0"
     updater_path = os.path.join(src_dir, "utils", "updater.py")
     if os.path.exists(updater_path):
         try:

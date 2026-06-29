@@ -8,11 +8,12 @@ from core.speedtest import SpeedTestWorker, ServerListWorker
 from utils.db import DatabaseManager
 import psutil
 import time
+from utils.i18n import _
 
 class ServerSelectionDialog(QDialog):
     def __init__(self, servers, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Select Server")
+        self.setWindowTitle(_("speed_select_server_title"))
         self.setFixedSize(400, 500)
         self.setObjectName("ServerDialog")
         self.setStyleSheet("""
@@ -37,13 +38,13 @@ class ServerSelectionDialog(QDialog):
         layout.setContentsMargins(20, 20, 20, 20)
         
         self.search_bar = QLineEdit()
-        self.search_bar.setPlaceholderText("Search server, sponsor or city...")
+        self.search_bar.setPlaceholderText(_("speed_search_placeholder"))
         layout.addWidget(self.search_bar)
         
         self.list_widget = QListWidget()
         
         # Add "Automatic" option first
-        auto_item = QListWidgetItem("Auto Select Best (Recommended)")
+        auto_item = QListWidgetItem(_("speed_auto_select"))
         auto_item.setData(Qt.UserRole, None)
         self.list_widget.addItem(auto_item)
         
@@ -59,7 +60,7 @@ class ServerSelectionDialog(QDialog):
         
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
-        self.select_btn = QPushButton("SELECT")
+        self.select_btn = QPushButton(_("speed_select_btn"))
         self.select_btn.clicked.connect(self.accept)
         btn_layout.addWidget(self.select_btn)
         layout.addLayout(btn_layout)
@@ -222,12 +223,12 @@ class SpeedtestView(QWidget):
         
         # Header
         header_layout = QHBoxLayout()
-        header = QLabel("Network Performance Test")
+        header = QLabel(_("speed_title"))
         header.setObjectName("Title")
         header_layout.addWidget(header)
         header_layout.addStretch()
         
-        self.start_btn = QPushButton("START TEST")
+        self.start_btn = QPushButton(_("speed_start_test"))
         self.start_btn.setObjectName("PrimaryButton")
         self.start_btn.setFixedSize(160, 40)
         self.start_btn.clicked.connect(self.start_test)
@@ -240,11 +241,11 @@ class SpeedtestView(QWidget):
         stats_layout = QHBoxLayout(self.stats_container)
         stats_layout.setContentsMargins(15, 15, 15, 15)
         
-        self.download_gauge = CircularGauge("DOWNLOAD", "Mbps", "#10B981", 100)
-        self.upload_gauge = CircularGauge("UPLOAD", "Mbps", "#6366F1", 100)
-        self.latency_gauge = CircularGauge("PING", "ms", "#F59E0B", 200)
-        self.jitter_gauge = CircularGauge("JITTER", "ms", "#EC4899", 50)
-        self.loss_gauge = CircularGauge("LOSS", "%", "#EF4444", 10) # Added Packet Loss
+        self.download_gauge = CircularGauge(_("speed_gauge_download"), "Mbps", "#10B981", 100)
+        self.upload_gauge = CircularGauge(_("speed_gauge_upload"), "Mbps", "#6366F1", 100)
+        self.latency_gauge = CircularGauge(_("speed_gauge_ping_label"), "ms", "#F59E0B", 200)
+        self.jitter_gauge = CircularGauge(_("speed_gauge_jitter_label"), "ms", "#EC4899", 50)
+        self.loss_gauge = CircularGauge(_("speed_gauge_loss_label"), "%", "#EF4444", 10) # Added Packet Loss
         
         stats_layout.addWidget(self.download_gauge)
         stats_layout.addWidget(self.upload_gauge)
@@ -263,11 +264,12 @@ class SpeedtestView(QWidget):
         self.info_bar.setFixedHeight(70)
         info_layout = QHBoxLayout(self.info_bar)
         
-        self.isp_label_layout = self._create_info_label("ISP", "Scanning...")
-        self.ip_label_layout = self._create_info_label("PUBLIC IP", "Scanning...")
+        self._info_labels = {}
+        self.isp_label_layout = self._create_info_label("ISP", _("speed_info_isp"), _("speed_info_scanning"))
+        self.ip_label_layout = self._create_info_label("PUBLIC IP", _("speed_info_ip"), _("speed_info_scanning"))
         
         # Server selector button
-        self.server_btn = QPushButton("Auto Select Best")
+        self.server_btn = QPushButton(_("speed_auto_select_short"))
         self.server_btn.setStyleSheet("""
             QPushButton { 
                 background-color: #1E293B; color: #FFFFFF; font-weight: bold; 
@@ -281,7 +283,7 @@ class SpeedtestView(QWidget):
         
         server_layout = QVBoxLayout()
         server_layout.setSpacing(2)
-        s_title = QLabel("SERVER")
+        s_title = QLabel(_("speed_info_server"))
         s_title.setStyleSheet("color: #64748B; font-size: 9px; font-weight: bold;")
         server_layout.addWidget(s_title)
         server_layout.addWidget(self.server_btn)
@@ -298,17 +300,17 @@ class SpeedtestView(QWidget):
         
         # 4. History Table
         history_header_layout = QHBoxLayout()
-        h_title = QLabel("Test History")
+        h_title = QLabel(_("speed_history_title"))
         h_title.setStyleSheet("font-weight: bold;")
         history_header_layout.addWidget(h_title)
         
         history_header_layout.addStretch()
         
-        self.clear_history_btn = QPushButton("Clear History")
+        self.clear_history_btn = QPushButton(_("speed_clear_history"))
         self.clear_history_btn.setObjectName("SecondaryButton")
         self.clear_history_btn.clicked.connect(self.clear_history)
         
-        self.export_pdf_btn = QPushButton("Export PDF")
+        self.export_pdf_btn = QPushButton(_("speed_export_pdf"))
         self.export_pdf_btn.setObjectName("SecondaryButton")
         self.export_pdf_btn.clicked.connect(self.export_pdf)
         
@@ -317,14 +319,15 @@ class SpeedtestView(QWidget):
         self.layout.addLayout(history_header_layout)
         
         self.history_table = QTableWidget(0, 6)
-        self.history_table.setHorizontalHeaderLabels(["Date/Time", "Down (Mbps)", "Up (Mbps)", "Ping (ms)", "Jitter", "Loss %"])
+        self.history_table.setHorizontalHeaderLabels([_("speed_table_datetime"), _("speed_table_down"), _("speed_table_up"), _("speed_table_ping"), _("speed_table_jitter"), _("speed_table_loss")])
         self.history_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.history_table.setMinimumHeight(100)
         self.history_table.setMaximumHeight(150)
         self.history_table.verticalHeader().setVisible(False)
+        self.history_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.layout.addWidget(self.history_table)
         
-        self.status_label = QLabel("Professional Network Engine Ready")
+        self.status_label = QLabel(_("speed_ready"))
         self.status_label.setStyleSheet("color: #64748B; font-size: 11px;")
         self.layout.addWidget(self.status_label, alignment=Qt.AlignCenter)
         
@@ -343,10 +346,10 @@ class SpeedtestView(QWidget):
     def populate_servers(self, servers):
         self.all_servers = servers
         if servers:
-            self.status_label.setText(f"System Ready: {len(servers)} servers loaded")
+            self.status_label.setText(_("speed_servers_loaded").format(len(servers)))
             self.logger.info(f"Loaded {len(servers)} speedtest servers")
         else:
-            self.status_label.setText("Notice: Auto-select mode only (Discovery limited)")
+            self.status_label.setText(_("speed_discovery_limited"))
             self.logger.warning("Server list fetch returned empty results")
 
     def open_server_selection(self):
@@ -358,20 +361,19 @@ class SpeedtestView(QWidget):
                 self.server_btn.setText(f"{server.get('ui_name', server.get('name'))}")
             else:
                 self.selected_server_data = None
-                self.server_btn.setText("Auto Select Best")
+                self.server_btn.setText(_("speed_auto_select_short"))
 
-    def _create_info_label(self, title, val):
+    def _create_info_label(self, key, display_title, val):
         layout = QVBoxLayout()
         layout.setSpacing(2)
-        t = QLabel(title)
+        t = QLabel(display_title)
         t.setStyleSheet("color: #64748B; font-size: 9px; font-weight: bold;")
         v = QLabel(val)
         v.setStyleSheet("color: #FFFFFF; font-size: 13px; font-weight: bold;")
         layout.addWidget(t)
         layout.addWidget(v)
         
-        if not hasattr(self, "_info_labels"): self._info_labels = {}
-        self._info_labels[title] = v
+        self._info_labels[key] = v
         return layout
 
     def update_info_labels(self, info):
@@ -408,7 +410,7 @@ class SpeedtestView(QWidget):
 
     def clear_history(self):
         from PySide6.QtWidgets import QMessageBox
-        reply = QMessageBox.question(self, 'Clear History', 'Are you sure you want to clear the speedtest history?', 
+        reply = QMessageBox.question(self, _("speed_confirm_clear_title"), _("speed_confirm_clear_msg"), 
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             self.db.clear_speedtest_history()
@@ -418,11 +420,11 @@ class SpeedtestView(QWidget):
         from PySide6.QtWidgets import QMessageBox, QFileDialog
         history = self.db.get_speedtest_history(100)
         if not history:
-            QMessageBox.warning(self, "Export", "No history data to export.")
+            QMessageBox.warning(self, _("msg_warning"), _("speed_no_history"))
             return
             
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "Export PDF Report", "BahaaIT_Speedtest_Report.pdf", "PDF Files (*.pdf)"
+        file_path, _filter = QFileDialog.getSaveFileName(
+            self, _("speed_export_title"), "BahaaIT_Speedtest_Report.pdf", "PDF Files (*.pdf)"
         )
         
         if file_path:
@@ -431,14 +433,14 @@ class SpeedtestView(QWidget):
             success, msg = generator.generate_speedtest_report(history, file_path)
             
             if success:
-                QMessageBox.information(self, "Success", "PDF Report exported successfully.")
+                QMessageBox.information(self, _("msg_success"), _("speed_export_success"))
             else:
-                QMessageBox.critical(self, "Error", f"Failed to export PDF: {msg}")
+                QMessageBox.critical(self, _("msg_error"), _("speed_export_failed").format(msg))
 
     def start_test(self):
         self.start_btn.setEnabled(False)
-        self.start_btn.setText("TESTING...")
-        self.status_label.setText("Preparing Professional Test...")
+        self.start_btn.setText(_("speed_testing"))
+        self.status_label.setText(_("speed_preparing"))
         self.download_gauge.setValue(0)
         self.upload_gauge.setValue(0)
         self.latency_gauge.setValue(0)
@@ -496,12 +498,12 @@ class SpeedtestView(QWidget):
         if hasattr(self, "realtime_timer"):
             self.realtime_timer.stop()
         self.start_btn.setEnabled(True)
-        self.start_btn.setText("START TEST")
+        self.start_btn.setText(_("speed_start_test"))
         
         # Don't overwrite error messages with success message
         current_status = self.status_label.text()
         if "Error" not in current_status and "Speedtest Error" not in current_status:
-            self.status_label.setText("Test Completed Successfully")
+            self.status_label.setText(_("speed_completed"))
         else:
             # If there was an error, make sure gauges are reset to 0
             self.download_gauge.setValue(0)

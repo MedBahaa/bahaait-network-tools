@@ -301,6 +301,63 @@ QLineEdit:focus {
     background-color: #1E293B;
 }
 
+QSpinBox {
+    background-color: #0F172A;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    padding: 5px 24px 5px 12px;
+    color: #F1F5F9;
+    font-size: 13px;
+    min-height: 35px;
+    selection-background-color: #6366F1;
+}
+
+QSpinBox:focus {
+    border: 1px solid #6366F1;
+    background-color: #1E293B;
+}
+
+QSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 22px;
+    background: #1E293B;
+    border-top-right-radius: 9px;
+    border-left: 1px solid #334155;
+    border-bottom: 1px solid #334155;
+}
+
+QSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 22px;
+    background: #1E293B;
+    border-bottom-right-radius: 9px;
+    border-left: 1px solid #334155;
+}
+
+QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+    background: #334155;
+}
+
+QSpinBox::up-arrow {
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-bottom: 5px solid #F1F5F9;
+    width: 0;
+    height: 0;
+}
+
+QSpinBox::down-arrow {
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid #F1F5F9;
+    width: 0;
+    height: 0;
+}
+
 /* Table Design */
 QTableWidget {
     background-color: #1E293B;
@@ -458,4 +515,38 @@ QToolTip {
     border-radius: 4px;
     padding: 6px;
     font-size: 12px;
+}
+
+/* Custom QTabWidget Styling */
+QTabWidget::pane {
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    background-color: transparent;
+    border-radius: 12px;
+    top: -1px;
+}
+
+QTabBar::tab {
+    background-color: #0F172A;
+    color: #94A3B8;
+    border: 1px solid #334155;
+    border-bottom-color: transparent;
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+    padding: 10px 20px;
+    min-height: 25px;
+    font-weight: 600;
+    margin-right: 6px;
+    font-size: 13px;
+}
+
+QTabBar::tab:hover {
+    background-color: #1E293B;
+    color: #FFFFFF;
+}
+
+QTabBar::tab:selected {
+    background-color: #1E293B;
+    color: #6366F1;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 2px solid #6366F1;
 }

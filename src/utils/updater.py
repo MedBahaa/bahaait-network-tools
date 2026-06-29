@@ -6,9 +6,10 @@ import subprocess
 import threading
 from PySide6.QtWidgets import QMessageBox, QProgressDialog
 from PySide6.QtCore import QObject, Signal, Slot, Qt
+from utils.i18n import _
 
 GITHUB_REPO = "MedBahaa/bahaait-network-tools"
-CURRENT_VERSION = "v2.0.0"
+CURRENT_VERSION = "v3.0.0"
 
 class UpdateWorker(QObject):
     update_available = Signal(str, str, str, str)  # latest_version, release_notes, download_url, exe_url
@@ -27,10 +28,10 @@ class UpdateWorker(QObject):
             response = requests.get(url, timeout=5)
             if response.status_code == 200:
                 data = response.json()
-                latest_version = data.get("tag_name", "v1.0.0")
+                latest_version = data.get("tag_name", "2.0.0")
                 
                 if latest_version != CURRENT_VERSION:
-                    release_notes = data.get("body", "Pas de notes de mise à jour.")
+                    release_notes = data.get("body", _("upd_no_notes"))
                     download_url = data.get("html_url", f"https://github.com/{GITHUB_REPO}/releases/latest")
                     
                     # Search for exe asset
@@ -44,11 +45,11 @@ class UpdateWorker(QObject):
                     
                     self.update_available.emit(latest_version, release_notes, download_url, exe_url)
                 else:
-                    self.no_update_or_error.emit(False, "À jour", "Vous utilisez déjà la dernière version.")
+                    self.no_update_or_error.emit(False, _("upd_up_to_date_title"), _("upd_up_to_date_msg"))
             else:
-                self.no_update_or_error.emit(True, "Erreur", f"Impossible de vérifier les mises à jour. Code : {response.status_code}")
+                self.no_update_or_error.emit(True, _("upd_error"), _("upd_check_error").format(response.status_code))
         except Exception as e:
-            self.no_update_or_error.emit(True, "Erreur de mise à jour", f"Une erreur est survenue :\n{str(e)}")
+            self.no_update_or_error.emit(True, _("upd_update_error_title"), _("upd_update_error_msg").format(str(e)))
 
 class DownloadWorker(QObject):
     progress = Signal(int)
@@ -129,13 +130,13 @@ class AutoUpdater(QObject):
         self.fallback_url = download_url
         if self.parent:
             msg = QMessageBox(self.parent)
-            msg.setWindowTitle("Mise à jour disponible")
-            msg.setText(f"La version {latest_version} est disponible !")
-            msg.setInformativeText(f"Notes de mise à jour :\n{release_notes}\n\nVoulez-vous la télécharger et l'installer maintenant ?")
+            msg.setWindowTitle(_("upd_available_title"))
+            msg.setText(_("upd_available_msg").format(latest_version))
+            msg.setInformativeText(_("upd_available_info").format(release_notes))
             
-            # French buttons: "Mettre à jour" and "Plus tard"
-            update_btn = msg.addButton("Mettre à jour", QMessageBox.AcceptRole)
-            later_btn = msg.addButton("Plus tard", QMessageBox.RejectRole)
+            # Translated buttons
+            update_btn = msg.addButton(_("upd_btn_update"), QMessageBox.AcceptRole)
+            later_btn = msg.addButton(_("upd_btn_later"), QMessageBox.RejectRole)
             
             msg.setStyleSheet("""
                 QMessageBox {
@@ -180,8 +181,8 @@ class AutoUpdater(QObject):
             self.finished.emit()
 
     def _start_download(self, exe_url):
-        self.progress_dialog = QProgressDialog("Téléchargement de la mise à jour...", "Annuler", 0, 100, self.parent)
-        self.progress_dialog.setWindowTitle("Mise à jour")
+        self.progress_dialog = QProgressDialog(_("upd_downloading"), _("upd_btn_cancel"), 0, 100, self.parent)
+        self.progress_dialog.setWindowTitle(_("upd_download_title"))
         self.progress_dialog.setWindowModality(Qt.WindowModal)
         self.progress_dialog.setMinimumDuration(0)
         self.progress_dialog.setStyleSheet("""
@@ -252,7 +253,7 @@ class AutoUpdater(QObject):
             QApplication.quit()
             sys.exit(0)
         except Exception as e:
-            QMessageBox.critical(self.parent, "Erreur d'installation", f"Impossible de démarrer l'installateur :\n{str(e)}")
+            QMessageBox.critical(self.parent, _("upd_install_error_title"), _("upd_install_error_msg").format(str(e)))
             self.finished.emit()
 
     @Slot(str)
@@ -262,12 +263,12 @@ class AutoUpdater(QObject):
             
         # Error notification and fallback to browser download
         msg = QMessageBox(self.parent)
-        msg.setWindowTitle("Erreur de téléchargement")
-        msg.setText("Le téléchargement direct a échoué.")
-        msg.setInformativeText(f"Raison : {err_msg}\n\nVoulez-vous ouvrir la page de téléchargement dans votre navigateur ?")
+        msg.setWindowTitle(_("upd_download_error_title"))
+        msg.setText(_("upd_download_error_msg"))
+        msg.setInformativeText(_("upd_download_error_info").format(err_msg))
         
-        yes_btn = msg.addButton("Oui", QMessageBox.YesRole)
-        no_btn = msg.addButton("Non", QMessageBox.NoRole)
+        yes_btn = msg.addButton(_("upd_btn_yes"), QMessageBox.YesRole)
+        no_btn = msg.addButton(_("upd_btn_no"), QMessageBox.NoRole)
         
         msg.setStyleSheet("""
             QMessageBox {

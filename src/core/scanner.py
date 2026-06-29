@@ -7,7 +7,7 @@ try:
 except ImportError:
     SCAPY_AVAILABLE = False
 from PySide6.QtCore import QObject, Signal
-from icmplib import ping as icmp_ping, traceroute as icmp_traceroute, NameLookupError, SocketPermissionError
+from icmplib import ping as icmp_ping, NameLookupError, SocketPermissionError
 
 class Scanner(QObject):
     progress_signal = Signal(int)
@@ -16,41 +16,57 @@ class Scanner(QObject):
 
     def __init__(self):
         super().__init__()
+        self.running = True
 
     def scan_ports(self, target: str, port_range: Tuple[int, int]=(1, 1024), fast_mode: bool=True) -> List[int]:
+        import asyncio
         if fast_mode:
             common_ports = [21, 22, 23, 25, 53, 80, 110, 135, 139, 143, 443, 445, 993, 995, 1723, 3306, 3389, 5900, 8080]
-            ports = common_ports
+            ports = list(common_ports)
         else:
-            ports = range(port_range[0], port_range[1] + 1)
+            ports = list(range(port_range[0], port_range[1] + 1))
 
         total = len(ports)
         opened = []
+        count = 0
 
-        def check_port(port):
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(0.5)
-                if s.connect_ex((target, port)) == 0:
-                    return port
-            return None
-
-        try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
-                future_to_port = {executor.submit(check_port, port): port for port in ports}
-                count = 0
-                for future in concurrent.futures.as_completed(future_to_port):
-                    port = future_to_port[future]
-                    res = future.result()
-                    if res:
-                        opened.append(res)
-                        self.result_signal.emit({"target": target, "port": res, "status": "OPEN"})
-                    else:
-                        self.result_signal.emit({"target": target, "port": port, "status": "CLOSED"})
+        async def check_port_async(port, sem):
+            nonlocal count
+            async with sem:
+                if not self.running:
+                    return
+                try:
+                    conn = asyncio.open_connection(target, port)
+                    reader, writer = await asyncio.wait_for(conn, timeout=0.4)
+                    writer.close()
+                    try:
+                        await writer.wait_closed()
+                    except:
+                        pass
+                    opened.append(port)
+                    self.result_signal.emit({"target": target, "port": port, "status": "OPEN"})
+                except Exception:
+                    self.result_signal.emit({"target": target, "port": port, "status": "CLOSED"})
+                finally:
                     count += 1
                     self.progress_signal.emit(int((count / total) * 100))
+
+        async def run_scan():
+            sem = asyncio.Semaphore(200)
+            tasks = [check_port_async(p, sem) for p in ports]
+            await asyncio.gather(*tasks)
+
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(run_scan())
+            loop.close()
+        except Exception as e:
+            print(f"Async Scan Error: {e}")
         finally:
             self.finished_signal.emit()
-        return opened
+            
+        return sorted(opened)
 
     def scan_lan(self, network_prefix: str="192.168.1") -> List[Dict[str, Any]]:
         """ICMP-based LAN scan for a /24 subnet."""
@@ -90,6 +106,8 @@ class Scanner(QObject):
                 future_to_ip = {executor.submit(check_ip, i): i for i in range(1, 255)}
                 count = 0
                 for future in concurrent.futures.as_completed(future_to_ip):
+                    if not self.running:
+                        break
                     res = future.result()
                     if res:
                         results.append(res)
@@ -131,6 +149,8 @@ class Scanner(QObject):
             
             total = max(len(answered_list), 1)
             for i, element in enumerate(answered_list):
+                if not self.running:
+                    break
                 ip = element[1].psrc
                 mac = element[1].hwsrc.upper()
                 
@@ -246,6 +266,8 @@ class Scanner(QObject):
                 futures = {executor.submit(resolve_host, e): e for e in entries}
                 count = 0
                 for future in concurrent.futures.as_completed(futures):
+                    if not self.running:
+                        break
                     res = future.result()
                     results.append(res)
                     self.result_signal.emit(res)
@@ -274,6 +296,12 @@ class Scanner(QObject):
             
             hop_num = 0
             for line in process.stdout:
+                if not self.running:
+                    try:
+                        process.terminate()
+                    except:
+                        pass
+                    break
                 line = line.strip()
                 if not line:
                     continue

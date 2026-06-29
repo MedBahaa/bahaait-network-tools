@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox
 from PySide6.QtCore import Qt, Signal
 from utils.auth import AuthManager
+from utils.i18n import _
 
 class LoginDialog(QDialog):
     login_successful = Signal()
@@ -10,7 +11,7 @@ class LoginDialog(QDialog):
         self.auth_manager = auth_manager
         self.is_register_mode = False
         
-        self.setWindowTitle("BahaaIT Network Tools - Login")
+        self.setWindowTitle(_("login_title"))
         self.setFixedSize(400, 480) # Increased a bit more to fit the 3rd field comfortably
         self.setStyleSheet("""
             QDialog { background-color: #0F172A; border-radius: 12px; }
@@ -33,37 +34,37 @@ class LoginDialog(QDialog):
         title.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)
         
-        subtitle = QLabel("Premium Network Toolkit")
+        subtitle = QLabel(_("login_subtitle"))
         subtitle.setStyleSheet("color: #94A3B8; font-size: 13px; margin-bottom: 25px;")
         subtitle.setAlignment(Qt.AlignCenter)
         layout.addWidget(subtitle)
         
         # Inputs
         self.email_input = QLineEdit()
-        self.email_input.setPlaceholderText("Email Address")
+        self.email_input.setPlaceholderText(_("login_email_placeholder"))
         layout.addWidget(self.email_input)
         
         self.password_input = QLineEdit()
-        self.password_input.setPlaceholderText("Password")
+        self.password_input.setPlaceholderText(_("login_password_placeholder"))
         self.password_input.setEchoMode(QLineEdit.Password)
         self.password_input.returnPressed.connect(self.perform_action)
         layout.addWidget(self.password_input)
         
         self.confirm_password_input = QLineEdit()
-        self.confirm_password_input.setPlaceholderText("Confirm Password")
+        self.confirm_password_input.setPlaceholderText(_("login_confirm_placeholder"))
         self.confirm_password_input.setEchoMode(QLineEdit.Password)
         self.confirm_password_input.returnPressed.connect(self.perform_action)
         self.confirm_password_input.setVisible(False)
         layout.addWidget(self.confirm_password_input)
         
         # Buttons
-        self.action_btn = QPushButton("LOGIN")
+        self.action_btn = QPushButton(_("login_btn"))
         self.action_btn.setObjectName("PrimaryButton")
         self.action_btn.setCursor(Qt.PointingHandCursor)
         self.action_btn.clicked.connect(self.perform_action)
         layout.addWidget(self.action_btn)
         
-        self.toggle_mode_btn = QPushButton("Create an account")
+        self.toggle_mode_btn = QPushButton(_("login_create_account"))
         self.toggle_mode_btn.setObjectName("SecondaryButton")
         self.toggle_mode_btn.setCursor(Qt.PointingHandCursor)
         self.toggle_mode_btn.clicked.connect(self.toggle_mode)
@@ -75,14 +76,14 @@ class LoginDialog(QDialog):
         self.is_register_mode = not self.is_register_mode
         if self.is_register_mode:
             self.confirm_password_input.setVisible(True)
-            self.action_btn.setText("CREATE ACCOUNT")
-            self.toggle_mode_btn.setText("Already have an account? Login")
-            self.setWindowTitle("BahaaIT Network Tools - Register")
+            self.action_btn.setText(_("login_btn_register"))
+            self.toggle_mode_btn.setText(_("login_already_have_account"))
+            self.setWindowTitle(_("login_title_register"))
         else:
             self.confirm_password_input.setVisible(False)
-            self.action_btn.setText("LOGIN")
-            self.toggle_mode_btn.setText("Create an account")
-            self.setWindowTitle("BahaaIT Network Tools - Login")
+            self.action_btn.setText(_("login_btn"))
+            self.toggle_mode_btn.setText(_("login_create_account"))
+            self.setWindowTitle(_("login_title"))
 
     def perform_action(self):
         if self.is_register_mode:
@@ -94,10 +95,10 @@ class LoginDialog(QDialog):
         email = self.email_input.text().strip()
         pwd = self.password_input.text()
         if not email or not pwd:
-            QMessageBox.warning(self, "Error", "Please enter email and password.")
+            QMessageBox.warning(self, _("msg_error"), _("login_error_empty"))
             return
             
-        self.action_btn.setText("Logging in...")
+        self.action_btn.setText(_("login_logging_in"))
         self.action_btn.setEnabled(False)
         
         success, msg = self.auth_manager.login(email, pwd)
@@ -105,8 +106,8 @@ class LoginDialog(QDialog):
             self.login_successful.emit()
             self.accept()
         else:
-            QMessageBox.critical(self, "Login Failed", msg)
-            self.action_btn.setText("LOGIN")
+            QMessageBox.critical(self, _("login_failed"), msg)
+            self.action_btn.setText(_("login_btn"))
             self.action_btn.setEnabled(True)
 
     def attempt_register(self):
@@ -115,22 +116,22 @@ class LoginDialog(QDialog):
         pwd_confirm = self.confirm_password_input.text()
         
         if not email or not pwd or not pwd_confirm:
-            QMessageBox.warning(self, "Error", "Please fill in all fields.")
+            QMessageBox.warning(self, _("msg_error"), _("login_error_fill_all"))
             return
             
         if pwd != pwd_confirm:
-            QMessageBox.warning(self, "Error", "Passwords do not match!")
+            QMessageBox.warning(self, _("msg_error"), _("login_passwords_mismatch"))
             return
             
-        self.action_btn.setText("Registering...")
+        self.action_btn.setText(_("login_registering"))
         self.action_btn.setEnabled(False)
             
         success, msg = self.auth_manager.register(email, pwd)
         if success:
-            QMessageBox.information(self, "Registration", msg)
+            QMessageBox.information(self, _("login_registration"), msg)
             self.toggle_mode() # Switch back to login mode after successful registration
         else:
-            QMessageBox.critical(self, "Registration Failed", msg)
+            QMessageBox.critical(self, _("login_registration_failed"), msg)
             
-        self.action_btn.setText("CREATE ACCOUNT")
+        self.action_btn.setText(_("login_btn_register"))
         self.action_btn.setEnabled(True)

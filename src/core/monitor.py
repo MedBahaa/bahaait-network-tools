@@ -58,4 +58,3 @@ class PingWorker(QThread):
 
     def stop(self) -> None:
         self.running = False
-        self.wait()

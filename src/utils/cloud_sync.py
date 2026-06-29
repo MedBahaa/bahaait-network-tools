@@ -22,7 +22,7 @@ class CloudSyncManager:
             # Upsert
             try:
                 self.client.storage.from_("user-configs").update(file_path, data, {"contentType": "application/json"})
-            except:
+            except Exception:
                 self.client.storage.from_("user-configs").upload(file_path, data, {"contentType": "application/json"})
                 
             return True, "Configuration backed up to Cloud successfully."

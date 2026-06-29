@@ -1,244 +1,295 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                             QFrame, QGridLayout, QScrollArea, QPushButton, QMessageBox)
-from PySide6.QtCore import Qt, QTimer, QThread, Signal, QRectF
-from PySide6.QtGui import QPainter, QColor, QPen, QPainterPath
+                             QFrame, QScrollArea)
+from PySide6.QtCore import Qt, QSize, Signal, QPropertyAnimation, QEasingCurve, Property
+from PySide6.QtSvg import QSvgRenderer
+from PySide6.QtGui import QPixmap, QPainter, QColor
+from utils.i18n import _
 import os
+import sys
+import webbrowser
 
-from core.service_checker import AdvancedServiceChecker
-from utils.db import DatabaseManager
 
-class Sparkline(QWidget):
-    def __init__(self, history_data, parent=None):
+class ServiceCard(QFrame):
+    def __init__(self, name, desc, url, logo_file, accent_color, assets_dir, parent=None):
         super().__init__(parent)
-        self.history = history_data  # List of {"status": "UP", "latency": 50}
-        self.setMinimumHeight(30)
-        self.setMaximumHeight(30)
+        self.url = url
+        self.accent_color = "#6366F1" # Uniform hover accent color
+        
+        self.setObjectName("ServiceCard")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFrameShape(QFrame.StyledPanel)
+        
+        # Consistent card size (centered and compact)
+        self.setFixedWidth(260)
+        self.setMinimumHeight(250)
+        self.setMaximumHeight(270)
+        
+        # Initial stylesheet setup - all cards have the SAME visual styling
+        self._apply_style(is_hovered=False)
+        
+        # Vertical Layout inside the card
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(25, 25, 25, 25)
+        layout.setSpacing(15)
+        
+        # 1. Icon Container at the top (centered)
+        icon_container = QHBoxLayout()
+        self.icon_label = QLabel()
+        self.icon_label.setFixedSize(64, 64)
+        self.icon_label.setAlignment(Qt.AlignCenter)
+        self.icon_label.setStyleSheet("""
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        """)
+        
+        # Render brand SVG onto QPixmap
+        svg_path = os.path.join(assets_dir, logo_file)
+        if os.path.exists(svg_path):
+            try:
+                with open(svg_path, "r", encoding="utf-8") as f:
+                    svg_data = f.read()
+                # Inject brand accent color for logo recognition
+                svg_data = svg_data.replace("<svg ", f'<svg fill="{accent_color}" ', 1)
+                renderer = QSvgRenderer(svg_data.encode("utf-8"))
+                pixmap = QPixmap(QSize(30, 30))
+                pixmap.fill(Qt.transparent)
+                painter = QPainter(pixmap)
+                renderer.render(painter)
+                painter.end()
+                self.icon_label.setPixmap(pixmap)
+            except Exception as e:
+                print(f"Error loading logo {logo_file}: {e}")
+                
+        icon_container.addWidget(self.icon_label)
+        layout.addLayout(icon_container)
+        
+        # 2. Text layout (Title and Description wrapped and centered)
+        self.title_label = QLabel(name)
+        self.title_label.setAlignment(Qt.AlignCenter)
+        self.title_label.setStyleSheet("font-size: 18px; font-weight: 800; color: #F1F5F9; letter-spacing: 0.5px; background: transparent;")
+        layout.addWidget(self.title_label)
+        
+        self.desc_label = QLabel(desc)
+        self.desc_label.setAlignment(Qt.AlignCenter)
+        self.desc_label.setWordWrap(True)
+        self.desc_label.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: 400; line-height: 1.4; background: transparent;")
+        layout.addWidget(self.desc_label, 1)
+        
+        # 3. Action Link & Arrow at the bottom (centered)
+        action_layout = QHBoxLayout()
+        action_layout.setSpacing(6)
+        action_layout.setAlignment(Qt.AlignCenter)
+        
+        self.action_label = QLabel(_("svc_check_official", "Consulter"))
+        self.action_label.setStyleSheet("font-size: 11px; font-weight: 700; color: #6366F1; letter-spacing: 0.5px; background: transparent;")
+        
+        self.arrow_label = QLabel("↗")
+        self.arrow_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #6366F1; background: transparent;")
+        
+        action_layout.addWidget(self.action_label)
+        action_layout.addWidget(self.arrow_label)
+        layout.addLayout(action_layout)
 
-    def set_history(self, history):
-        self.history = history
-        self.update()
+    def _apply_style(self, is_hovered):
+        if is_hovered:
+            self.setStyleSheet("""
+                #ServiceCard {
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #232D3F, stop:1 #0F172A);
+                    border: 1px solid #6366F1;
+                    border-radius: 16px;
+                }
+            """)
+        else:
+            self.setStyleSheet("""
+                #ServiceCard {
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1E293B, stop:1 #0F172A);
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    border-radius: 16px;
+                }
+            """)
+
+    def enterEvent(self, event):
+        self._apply_style(is_hovered=True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._apply_style(is_hovered=False)
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            webbrowser.open(self.url)
+
+class PulsingDot(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(14, 14)
+        self._pulse_alpha = 100
+        
+        # Animating the custom property "pulse_alpha"
+        self.anim = QPropertyAnimation(self, b"pulse_alpha")
+        self.anim.setDuration(1200)
+        self.anim.setStartValue(180)
+        self.anim.setEndValue(30)
+        self.anim.setEasingCurve(QEasingCurve.InOutQuad)
+        self.anim.setLoopCount(-1) # Infinite loop
+        self.anim.start()
+
+    def get_pulse_alpha(self):
+        return self._pulse_alpha
+
+    def set_pulse_alpha(self, val):
+        self._pulse_alpha = val
+        self.update() # Triggers repaint
+
+    pulse_alpha = Property(int, get_pulse_alpha, set_pulse_alpha)
 
     def paintEvent(self, event):
-        if not self.history:
-            return
-
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         
-        w = self.width()
-        h = self.height()
-        count = len(self.history)
-        if count < 2: return
+        # 1. Draw outer ring with animated alpha
+        outer_color = QColor(16, 185, 129, self._pulse_alpha)
+        painter.setBrush(outer_color)
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(0, 0, 14, 14)
+        
+        # 2. Draw inner solid dot
+        inner_color = QColor(16, 185, 129, 255)
+        painter.setBrush(inner_color)
+        painter.drawEllipse(3, 3, 8, 8)
+        
+        painter.end()
 
-        # Draw bars for status
-        bar_w = (w - (count - 1) * 2) / count
-        for i, point in enumerate(self.history):
-            status = point.get("status", "UNKNOWN")
-            color = QColor("#10B981") if status == "UP" else QColor("#F59E0B") if status == "DEGRADED" else QColor("#F43F5E")
-            
-            x = i * (bar_w + 2)
-            # Use 60% height for bars, centered vertically
-            bar_h = h * 0.6
-            y = (h - bar_h) / 2
-            
-            painter.setBrush(color)
-            painter.setPen(Qt.NoPen)
-            painter.drawRoundedRect(QRectF(x, y, bar_w, bar_h), 2, 2)
-
-class ServiceWorker(QThread):
-    # Returns: service_id, status_string
-    status_ready = Signal(int, str) 
-
-    def __init__(self, db):
-        super().__init__()
-        self.db = db
-
-    def run(self):
-        services = self.db.get_global_services()
-        for svc in services:
-            try:
-                status, latency = AdvancedServiceChecker.check_service(svc["name"], svc["url"])
-                # Log it to DB
-                self.db.log_global_service(svc["id"], status, latency)
-                # Emit the status
-                self.status_ready.emit(svc["id"], status)
-            except Exception as e:
-                print(f"Error checking {svc['name']}: {e}")
-                self.status_ready.emit(svc["id"], "UNKNOWN")
 
 class ServiceStatusView(QWidget):
-    service_alert = Signal(str, str) 
+    service_alert = Signal(str, str)  # Preserved for compatibility
+
+    SERVICES = [
+        {
+            "name": "Apple",
+            "desc": "iCloud, App Store, Apple Music, Apple TV+, iMessage…",
+            "url": "https://www.apple.com/fr/support/systemstatus/",
+            "logo_file": "apple_logo.svg",
+            "accent": "#A3AAAE",
+        },
+        {
+            "name": "Netflix",
+            "desc": "Streaming, Téléchargements, Comptes, Facturation…",
+            "url": "https://help.netflix.com/fr/is-netflix-down",
+            "logo_file": "netflix_logo.svg",
+            "accent": "#E50914",
+        },
+        {
+            "name": "PlayStation",
+            "desc": "PSN, PS Store, Jeux en ligne, PS Plus, PS Now…",
+            "url": "https://status.playstation.com/fr-FR/",
+            "logo_file": "playstation_logo.svg",
+            "accent": "#006FCD",
+        },
+    ]
 
     def __init__(self, logger):
         super().__init__()
         self.logger = logger
-        self.db = DatabaseManager()
-        self.cards = {} # Store UI elements by service_id
         
+        # Assets directory resolution (checking src/assets first, then root assets)
+        if getattr(sys, 'frozen', False):
+            self.assets_dir = os.path.join(sys._MEIPASS, "assets")
+        else:
+            path1 = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "assets"))
+            path2 = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "assets"))
+            if os.path.exists(os.path.join(path1, "apple_logo.svg")):
+                self.assets_dir = path1
+            else:
+                self.assets_dir = path2
+            
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(30, 30, 30, 30)
-        self.layout.setSpacing(25)
+        self.layout.setContentsMargins(40, 40, 40, 40)
+        self.layout.setSpacing(35)
         
-        # Header
+        # Header / Title Block (Centralized)
         header_container = QFrame()
         header_container.setStyleSheet("background: transparent;")
-        header_layout = QHBoxLayout(header_container)
+        header_layout = QVBoxLayout(header_container)
         header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(12)
         
-        title_vbox = QVBoxLayout()
-        header = QLabel("GLOBAL STATUS")
-        header.setObjectName("Title")
-        header.setStyleSheet("font-size: 28px; letter-spacing: 1px;")
+        # 1. Badge "PAGES OFFICIELLES" (Centered)
+        # 1. Badge "PAGES OFFICIELLES" (Centered, no border frame)
+        badge_container = QHBoxLayout()
+        badge_container.setSpacing(8)
+        badge_container.addStretch()
         
-        subtitle = QLabel("Official Cloud & Enterprise Service Health")
-        subtitle.setStyleSheet("color: #94A3B8; font-size: 14px; font-weight: 500;")
+        pulse_dot = PulsingDot()
         
-        title_vbox.addWidget(header)
-        title_vbox.addWidget(subtitle)
-        header_layout.addLayout(title_vbox)
+        badge_text = QLabel(_("svc_official_badge", "PAGES OFFICIELLES"))
+        badge_text.setStyleSheet("color: #818CF8; font-size: 10px; font-weight: 800; letter-spacing: 2px; background: transparent;")
         
-        header_layout.addStretch()
+        badge_container.addWidget(pulse_dot)
+        badge_container.addWidget(badge_text)
+        badge_container.addStretch()
+        header_layout.addLayout(badge_container)
         
-        self.refresh_btn = QLabel("● LIVE")
-        self.refresh_btn.setStyleSheet("color: #10B981; font-weight: 800; background: rgba(16, 185, 129, 0.1); padding: 8px 15px; border-radius: 10px; font-size: 11px;")
-        header_layout.addWidget(self.refresh_btn, 0, Qt.AlignVCenter)
+        # 2. Main Title (Centered)
+        title = QLabel(_("svc_title", "État des Services"))
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("""
+            font-size: 34px;
+            font-weight: 900;
+            color: #F1F5F9;
+            letter-spacing: -0.5px;
+        """)
+        header_layout.addWidget(title)
+        
+        # 3. Subtitle (Centered)
+        subtitle = QLabel(_("svc_subtitle", "Consultez en temps réel l'état des serveurs et services des principales plateformes."))
+        subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setStyleSheet("color: #64748B; font-size: 15px; font-weight: 400;")
+        header_layout.addWidget(subtitle)
+        
+        # 4. Colored Line Separator (Centered)
+        line_container = QHBoxLayout()
+        line_container.addStretch()
+        line = QFrame()
+        line.setFixedSize(60, 3)
+        line.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #6366F1, stop:1 #8B5CF6); border-radius: 1.5px;")
+        line_container.addWidget(line)
+        line_container.addStretch()
+        header_layout.addLayout(line_container)
         
         self.layout.addWidget(header_container)
         
-        # Note: Add Service Form removed per requirement "user ne peut pas ajouter une plateforme"
-        
-        # Scroll Area
+        # 5. Scroll Area & Cards Container (horizontal grid with 3 columns side-by-side, centered)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setObjectName("StatusScrollArea")
-        scroll.setStyleSheet("QScrollArea#StatusScrollArea { border: none; background: transparent; }")
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("background: transparent;")
         scroll.viewport().setStyleSheet("background: transparent;")
         
-        self.container = QWidget()
-        self.container.setObjectName("StatusContainer")
-        self.container.setStyleSheet("QWidget#StatusContainer { background: transparent; }")
-        self.grid = QGridLayout(self.container)
-        self.grid.setSpacing(20)
-        self.grid.setContentsMargins(0, 0, 0, 0)
-        scroll.setWidget(self.container)
-        self.layout.addWidget(scroll)
+        cards_widget = QWidget()
+        cards_widget.setStyleSheet("background: transparent;")
+        cards_layout = QHBoxLayout(cards_widget)
+        cards_layout.setContentsMargins(0, 0, 0, 0)
+        cards_layout.setSpacing(20)
         
-        self.setup_ui()
+        # Add stretches to left and right to group cards in the center
+        cards_layout.addStretch()
+        for svc in self.SERVICES:
+            desc_key = f"svc_{svc['name'].lower()}_desc"
+            card = ServiceCard(
+                name=svc["name"],
+                desc=_(desc_key, svc["desc"]),
+                url=svc["url"],
+                logo_file=svc["logo_file"],
+                accent_color=svc["accent"],
+                assets_dir=self.assets_dir,
+                parent=self
+            )
+            cards_layout.addWidget(card)
+        cards_layout.addStretch()
+            
+        scroll.setWidget(cards_widget)
         
-        # Auto-refresh timer
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.refresh_status)
-        self.timer.start(60000) # Refresh every minute
-        
-        self.refresh_status()
-
-    def setup_ui(self):
-        # Clear existing layout
-        while self.grid.count():
-            item = self.grid.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-                
-        self.cards.clear()
-        
-        services = self.db.get_global_services()
-        
-        cols = 3
-        for i, svc in enumerate(services):
-            card = QFrame()
-            card.setObjectName("Card")
-            card.setMinimumHeight(160)
-            card_layout = QVBoxLayout(card)
-            card_layout.setContentsMargins(25, 25, 25, 25)
-            card_layout.setSpacing(15)
-            
-            # Header: Name
-            n_label = QLabel(svc["name"].upper())
-            n_label.setObjectName("SubTitle")
-            n_label.setStyleSheet("letter-spacing: 1.5px; color: #6366F1; font-size: 11px; font-weight: 800;")
-            card_layout.addWidget(n_label)
-            
-            # Status Row
-            status_container = QHBoxLayout()
-            status_container.setSpacing(12)
-            
-            dot = QLabel("●")
-            dot.setStyleSheet("font-size: 20px; color: #334155;")
-            
-            s_label = QLabel("CHECKING...")
-            s_label.setObjectName("ValueLabel")
-            s_label.setStyleSheet("font-size: 22px; font-weight: 900; color: #F1F5F9;")
-            
-            status_container.addWidget(dot)
-            status_container.addWidget(s_label)
-            status_container.addStretch()
-            card_layout.addLayout(status_container)
-            
-            # Sparkline
-            history = self.db.get_global_service_history(svc["id"], limit=30)
-            sparkline = Sparkline(history)
-            card_layout.addWidget(sparkline)
-            
-            footer = QLabel("LATEST 30 CHECKS")
-            footer.setStyleSheet("color: #475569; font-size: 9px; font-weight: 800; letter-spacing: 1px;")
-            card_layout.addWidget(footer, 0, Qt.AlignRight)
-            
-            row, col = i // cols, i % cols
-            self.grid.addWidget(card, row, col)
-            
-            last_status = history[-1]["status"] if history else "UNKNOWN"
-            
-            self.cards[svc["id"]] = {
-                "name": svc["name"],
-                "status_label": s_label, 
-                "dot": dot, 
-                "sparkline": sparkline,
-                "last_status": last_status
-            }
-            
-            if history:
-                self._apply_status_style(s_label, dot, last_status)
-
-    def _apply_status_style(self, label, dot, status):
-        label.setText(status)
-        if status == "UP":
-            label.setStyleSheet("color: #10B981; font-weight: 900; font-size: 22px;")
-            dot.setStyleSheet("color: #10B981; font-size: 20px;")
-        elif status == "DEGRADED":
-            label.setStyleSheet("color: #F59E0B; font-weight: 900; font-size: 22px;")
-            dot.setStyleSheet("color: #F59E0B; font-size: 20px;")
-        else: # DOWN / UNKNOWN
-            label.setStyleSheet("color: #F43F5E; font-weight: 900; font-size: 22px;")
-            dot.setStyleSheet("color: #F43F5E; font-size: 20px;")
-
-    def refresh_status(self):
-        self.refresh_btn.setText("● SYNCING...")
-        self.refresh_btn.setStyleSheet("color: #F59E0B; font-weight: 800; background: rgba(245, 158, 11, 0.1); padding: 8px 15px; border-radius: 10px; font-size: 11px;")
-        
-        self.worker = ServiceWorker(self.db)
-        self.worker.status_ready.connect(self.update_card)
-        self.worker.finished.connect(self._on_refresh_finished)
-        self.worker.start()
-
-    def _on_refresh_finished(self):
-        self.refresh_btn.setText("● LIVE")
-        self.refresh_btn.setStyleSheet("color: #10B981; font-weight: 800; background: rgba(16, 185, 129, 0.1); padding: 8px 15px; border-radius: 10px; font-size: 11px;")
-
-    def update_card(self, service_id, status):
-        if service_id in self.cards:
-            card_info = self.cards[service_id]
-            
-            # Alert if status changes from UP to DOWN/DEGRADED
-            old_status = card_info["last_status"]
-            if old_status == "UP" and status in ["DOWN", "DEGRADED"]:
-                self.service_alert.emit(card_info["name"], status)
-            
-            card_info["last_status"] = status
-            
-            # Update history and sparkline
-            history = self.db.get_global_service_history(service_id, limit=30)
-            card_info["sparkline"].set_history(history)
-            
-            # Update labels
-            self._apply_status_style(card_info["status_label"], card_info["dot"], status)
-
+        self.layout.addWidget(scroll, 1)

@@ -4,7 +4,7 @@ from PySide6.QtCore import Qt, QThread, Signal
 import socket
 import serial
 import paramiko
-import getpass
+from utils.i18n import _
 
 class RemoteView(QWidget):
     def __init__(self, logger):
@@ -14,7 +14,7 @@ class RemoteView(QWidget):
         self.layout.setContentsMargins(30, 30, 30, 30)
         
         # Header
-        header = QLabel("Remote Access (PuTTY Style)")
+        header = QLabel(_("remote_title", "Remote Access (PuTTY Style)"))
         header.setObjectName("Title")
         self.layout.addWidget(header)
         
@@ -60,7 +60,7 @@ class RemoteView(QWidget):
         self.speed_input.setFixedWidth(100)
 
         # Connect Button
-        self.connect_btn = QPushButton("Connect")
+        self.connect_btn = QPushButton(_("remote_connect", "Connect"))
         self.connect_btn.setObjectName("PrimaryButton")
         self.connect_btn.setFixedHeight(35)
         self.connect_btn.setMinimumWidth(120)
@@ -68,21 +68,21 @@ class RemoteView(QWidget):
         self.connect_btn.clicked.connect(self.toggle_connection)
 
         # Labels for serial mode (stored as attributes to toggle visibility)
-        self.l_host = QLabel("HOST / IP:")
-        self.l_port = QLabel("PORT:")
-        self.l_serial = QLabel("SERIAL LINE:")
-        self.l_speed = QLabel("SPEED:")
+        self.l_host = QLabel(_("remote_host", "HOST / IP:"))
+        self.l_port = QLabel(_("remote_port", "PORT:"))
+        self.l_serial = QLabel(_("remote_serial_port", "SERIAL LINE:"))
+        self.l_speed = QLabel(_("remote_baud", "SPEED:"))
 
         # Layout Assembly
-        conn_layout.addLayout(create_group("TYPE:", self.protocol_selector))
+        conn_layout.addLayout(create_group(_("remote_type", "TYPE:"), self.protocol_selector))
         
         # IP/SSH Group
         self.ssh_container = QWidget()
         ssh_layout = QHBoxLayout(self.ssh_container)
         ssh_layout.setContentsMargins(0, 0, 0, 0)
         
-        self.group_host = create_group("HOST / IP:", self.host_input)
-        self.group_port = create_group("PORT:", self.port_input)
+        self.group_host = create_group(_("remote_host", "HOST / IP:"), self.host_input)
+        self.group_port = create_group(_("remote_port", "PORT:"), self.port_input)
         
         ssh_layout.addLayout(self.group_host)
         ssh_layout.addLayout(self.group_port)
@@ -91,8 +91,8 @@ class RemoteView(QWidget):
         self.serial_container = QWidget()
         serial_layout = QHBoxLayout(self.serial_container)
         serial_layout.setContentsMargins(0, 0, 0, 0)
-        self.group_serial = create_group("SERIAL LINE:", self.serial_line)
-        self.group_speed = create_group("SPEED:", self.speed_input)
+        self.group_serial = create_group(_("remote_serial_port", "SERIAL LINE:"), self.serial_line)
+        self.group_speed = create_group(_("remote_baud", "SPEED:"), self.speed_input)
         serial_layout.addLayout(self.group_serial)
         serial_layout.addLayout(self.group_speed)
         
@@ -128,7 +128,7 @@ class RemoteView(QWidget):
         
         # Command Input
         self.cmd_input = QLineEdit()
-        self.cmd_input.setPlaceholderText("Type command and press Enter...")
+        self.cmd_input.setPlaceholderText(_("remote_placeholder", "Type command and press Enter..."))
         self.cmd_input.returnPressed.connect(self.send_command)
         self.cmd_input.setEnabled(False)
         self.cmd_input.installEventFilter(self)
@@ -207,17 +207,17 @@ class RemoteView(QWidget):
         if proto == "SSH":
             host = self.host_input.text().strip()
             port = int(self.port_input.text() or "22")
-            self.terminal.append(f"[*] Connecting to {host}:{port} via SSH...")
+            self.terminal.append(f"[*] {_('remote_connecting_ssh', 'Connecting to')} {host}:{port} via SSH...")
             self.worker = SSHWorker(host, port)
         elif proto == "Telnet":
             host = self.host_input.text().strip()
             port = int(self.port_input.text() or "23")
-            self.terminal.append(f"[*] Connecting to {host}:{port} via Telnet...")
+            self.terminal.append(f"[*] {_('remote_connecting_telnet', 'Connecting to')} {host}:{port} via Telnet...")
             self.worker = TelnetWorker(host, port)
         elif proto == "Serial":
             line = self.serial_line.text().strip()
             speed = int(self.speed_input.text() or "9600")
-            self.terminal.append(f"[*] Opening {line} at {speed} baud...")
+            self.terminal.append(f"[*] {_('remote_opening_serial', 'Opening')} {line} at {speed} baud...")
             self.worker = SerialWorker(line, speed)
             
         self.worker.output_ready.connect(self.handle_terminal_output)
@@ -227,23 +227,23 @@ class RemoteView(QWidget):
 
     def on_connected(self, shell):
         self.shell = shell
-        self.terminal.append("[+] Connected successfully.")
-        self.connect_btn.setText("Disconnect")
+        self.terminal.append("[+] " + _("remote_connect_success", "Connected successfully."))
+        self.connect_btn.setText(_("remote_disconnect", "Disconnect"))
         self.connect_btn.setStyleSheet("background-color: #ff5252;")
         self.connect_btn.setEnabled(True)
         self.cmd_input.setEnabled(True)
         self.cmd_input.setFocus()
 
     def on_error(self, err):
-        self.terminal.append(f"[-] Error: {err}")
+        self.terminal.append(f"[-] {_('remote_error', 'Error')}: {err}")
         self.connect_btn.setEnabled(True)
-        self.connect_btn.setText("Connect")
+        self.connect_btn.setText(_("remote_connect", "Connect"))
 
     def disconnect(self):
         if self.worker:
             self.worker.stop()
-        self.terminal.append("[*] Disconnected.")
-        self.connect_btn.setText("Connect")
+        self.terminal.append("[*] " + _("remote_disconnected_msg", "Disconnected."))
+        self.connect_btn.setText(_("remote_connect", "Connect"))
         self.connect_btn.setStyleSheet("")
         self.cmd_input.setEnabled(False)
 

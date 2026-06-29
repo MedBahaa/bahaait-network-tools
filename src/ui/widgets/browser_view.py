@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLineEdit,
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtCore import QUrl, Qt
+from utils.i18n import _
 
 class WebPage(QWebEnginePage):
     def certificateError(self, error):
@@ -34,35 +35,35 @@ class BrowserView(QWidget):
         
         self.back_btn = QPushButton("‹")
         self.back_btn.setObjectName("BrowserNav")
-        self.back_btn.setToolTip("Back")
+        self.back_btn.setToolTip(_("browser_tooltip_back"))
         self.back_btn.setFixedSize(36, 36)
         
         self.forward_btn = QPushButton("›")
         self.forward_btn.setObjectName("BrowserNav")
-        self.forward_btn.setToolTip("Forward")
+        self.forward_btn.setToolTip(_("browser_tooltip_forward"))
         self.forward_btn.setFixedSize(36, 36)
         
         self.reload_btn = QPushButton("⟳")
         self.reload_btn.setObjectName("BrowserNav")
-        self.reload_btn.setToolTip("Reload")
+        self.reload_btn.setToolTip(_("browser_tooltip_reload"))
         self.reload_btn.setFixedSize(36, 36)
         
         self.address_bar = QLineEdit()
         self.address_bar.setObjectName("BrowserAddressBar")
         self.address_bar.setFixedHeight(34)
         self.address_bar.setStyleSheet("min-height: 34px; margin: 0px;")
-        self.address_bar.setPlaceholderText("Enter URL (e.g. 192.168.1.1)...")
+        self.address_bar.setPlaceholderText(_("browser_url_placeholder"))
         self.address_bar.returnPressed.connect(self.navigate)
         
         self.go_btn = QPushButton("→")
         self.go_btn.setObjectName("BrowserNav")
-        self.go_btn.setToolTip("Navigate")
+        self.go_btn.setToolTip(_("browser_tooltip_navigate"))
         self.go_btn.setFixedSize(36, 36)
         self.go_btn.clicked.connect(self.navigate)
         
         self.fullscreen_btn = QPushButton("⛶")
         self.fullscreen_btn.setObjectName("BrowserNav")
-        self.fullscreen_btn.setToolTip("Toggle Fullscreen")
+        self.fullscreen_btn.setToolTip(_("browser_tooltip_fullscreen"))
         self.fullscreen_btn.setFixedSize(36, 36)
         self.fullscreen_btn.clicked.connect(self.toggle_fullscreen)
         
@@ -104,8 +105,8 @@ class BrowserView(QWidget):
         self.forward_btn.clicked.connect(self.browser.forward)
         self.reload_btn.clicked.connect(self.browser.reload)
         
-        self.browser.setUrl(QUrl("https://www.google.com"))
-        self.address_bar.setText("https://www.google.com")
+        self.browser.setUrl(QUrl("https://www.google.com/?zx=1782696285495"))
+        self.address_bar.setText("https://www.google.com/?zx=1782696285495")
         self.is_fullscreen = False
 
     def toggle_fullscreen(self):
