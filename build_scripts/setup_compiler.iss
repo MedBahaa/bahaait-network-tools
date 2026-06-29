@@ -1,7 +1,7 @@
 [Setup]
 ; Basic Application Information
 AppName=BahaaIT Network Tools
-AppVersion=3.0.0
+AppVersion=3.0.1
 AppPublisher=Bahaa Mohamed
 DefaultDirName={autopf}\BahaaIT
 DefaultGroupName=BahaaIT Network Tools
@@ -12,7 +12,7 @@ SetupIconFile=..\assets\app_icon.ico
 Compression=lzma2
 SolidCompression=yes
 OutputDir=..\dist
-OutputBaseFilename=Install_BahaaIT_v3.0.0
+OutputBaseFilename=Install_BahaaIT_v3.0.1
 
 ; Permissions
 PrivilegesRequired=admin

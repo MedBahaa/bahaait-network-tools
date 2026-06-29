@@ -37,6 +37,14 @@ import json
 from utils.config import ConfigManager
 
 def main():
+    # Force Windows to associate the process with the shortcut's AppID for taskbar icon
+    if os.name == 'nt':
+        import ctypes
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Bahaa.BahaaIT.NetworkTools.3")
+        except Exception:
+            pass
+
     # 0. Load settings for flags from centralized config manager
     config_manager = ConfigManager()
     if config_manager.get("disable_ssl", False):
