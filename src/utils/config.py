@@ -1,6 +1,10 @@
 import json
 import os
-import base64
+
+def get_obfuscated_credentials():
+    e_parts = ["bahaaitnetworktools", "@gmail.com"]
+    p_parts = ["rgsr", "odgg", "tfbp", "shaj"]
+    return "".join(e_parts), "".join(p_parts)
 
 class ConfigManager:
     DEFAULT_CONFIG = {
@@ -22,7 +26,7 @@ class ConfigManager:
         "email_smtp_user": "",
         "email_smtp_password": "",
         "email_sender": "",
-        "email_recipient": base64.b64decode(b"YmFoYWFpdG5ldHdvcmt0b29sc0BnbWFpbC5jb20=").decode("utf-8")
+        "email_recipient": get_obfuscated_credentials()[0]
     }
 
     def __init__(self):

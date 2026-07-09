@@ -49,6 +49,7 @@ def build():
         '--windowed',
         '--add-data=src/ui/styles.qss;ui', # Add QSS to bundle
         '--clean',
+        '--noupx',
     ]
     
     # Include icons and other assets

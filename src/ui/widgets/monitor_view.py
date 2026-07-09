@@ -227,11 +227,18 @@ class MonitorView(QWidget):
         if file_path:
             data = []
             for ip, info in self.hosts.items():
+                history = self.db.get_host_history(ip, limit=100)
+                if history:
+                    up_count = sum(1 for log in history if log["status"] == "UP")
+                    availability = (up_count / len(history)) * 100.0
+                else:
+                    availability = 100.0 if info["status"] == "UP" else 0.0
                 data.append({
                     "label": info["label"],
                     "ip": ip,
                     "status": info["status"],
-                    "latency": info["latency"]
+                    "latency": info["latency"],
+                    "availability": availability
                 })
                 
             event_log_text = self.event_log.toPlainText()

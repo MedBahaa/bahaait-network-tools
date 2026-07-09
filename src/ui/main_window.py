@@ -3,12 +3,7 @@ from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 from PySide6.QtCore import Qt, QSize, QTimer, QPropertyAnimation, QEasingCurve, Signal
 from PySide6.QtGui import QIcon, QFont
 from ui.widgets.dashboard_view import DashboardView
-from ui.widgets.monitor_view import MonitorView
-from ui.widgets.tools_view import ToolsView
-from ui.widgets.scanner_view import ScannerView
-from ui.widgets.config_view import ConfigView
-from ui.widgets.settings_view import SettingsView
-# SpeedtestView, BrowserView, RemoteView, ServiceStatusView, SitesView are lazy-loaded
+# The other views (Monitor, Tools, Scanner, Config, Settings, Speedtest, Browser, Remote, ServiceStatus, Sites) are lazy-loaded on demand.
 from utils.config import ConfigManager
 from ui.system_tray import SystemTrayManager
 from utils.audio import AlarmManager
@@ -354,8 +349,33 @@ class MainWindow(QMainWindow):
         if self.content_area.currentIndex() == index:
             return
             
-        # Lazy load heavy views on first click
-        if index == 6 and self.speedtest is None:
+        # Lazy load views on first click
+        if index == 1 and self.monitor is None:
+            from ui.widgets.monitor_view import MonitorView
+            self.monitor = MonitorView(self.logger, self.alarm_manager, self.config_manager)
+            self._replace_placeholder(1, self.monitor)
+            
+        elif index == 2 and self.tools is None:
+            from ui.widgets.tools_view import ToolsView
+            self.tools = ToolsView(self.logger)
+            self._replace_placeholder(2, self.tools)
+            
+        elif index == 3 and self.scanner is None:
+            from ui.widgets.scanner_view import ScannerView
+            self.scanner = ScannerView(self.logger)
+            self._replace_placeholder(3, self.scanner)
+            
+        elif index == 4 and self.config is None:
+            from ui.widgets.config_view import ConfigView
+            self.config = ConfigView(self.logger, self.config_manager)
+            self._replace_placeholder(4, self.config)
+            
+        elif index == 5 and self.settings is None:
+            from ui.widgets.settings_view import SettingsView
+            self.settings = SettingsView(self.logger, self.alarm_manager, self.config_manager, self.auth_manager)
+            self._replace_placeholder(5, self.settings)
+            
+        elif index == 6 and self.speedtest is None:
             from ui.widgets.speedtest_view import SpeedtestView
             self.speedtest = SpeedtestView(self.logger)
             self._replace_placeholder(6, self.speedtest)
@@ -396,13 +416,13 @@ class MainWindow(QMainWindow):
 
     def setup_views(self):
         self.dashboard = DashboardView(self.logger, self.config_manager)
-        self.monitor = MonitorView(self.logger, self.alarm_manager, self.config_manager)
-        self.tools = ToolsView(self.logger)
-        self.scanner = ScannerView(self.logger)
-        self.config = ConfigView(self.logger, self.config_manager)
-        self.settings = SettingsView(self.logger, self.alarm_manager, self.config_manager, self.auth_manager)
         
-        # Heavy views initialized as placeholders (lazy loaded)
+        # Lazy loaded views
+        self.monitor = None
+        self.tools = None
+        self.scanner = None
+        self.config = None
+        self.settings = None
         self.speedtest = None
         self.browser_view = None
         self.remote_view = None
@@ -410,14 +430,9 @@ class MainWindow(QMainWindow):
         self.sites_view = None
         
         self.content_area.addWidget(self.dashboard)       # Index 0
-        self.content_area.addWidget(self.monitor)         # Index 1
-        self.content_area.addWidget(self.tools)           # Index 2
-        self.content_area.addWidget(self.scanner)         # Index 3
-        self.content_area.addWidget(self.config)          # Index 4
-        self.content_area.addWidget(self.settings)        # Index 5
         
-        # Add placeholders for lazy loaded screens
-        for _ in range(5):
+        # Add placeholders for all lazy loaded screens (Indices 1 to 10)
+        for _ in range(10):
             self.content_area.addWidget(QWidget())
 
     def _open_site_in_browser(self, ip):

@@ -68,12 +68,65 @@ def main():
         icon_path = os.path.join(os.path.dirname(__file__), "..", "assets", "app_icon.ico")
     app.setWindowIcon(QIcon(icon_path))
     
+    # 3.1 Single Instance check using QLocalServer/QLocalSocket
+    from PySide6.QtNetwork import QLocalServer, QLocalSocket
+    server_name = "BahaaIT_Single_Instance_Lock"
+    socket = QLocalSocket()
+    socket.connectToServer(server_name)
+    if socket.waitForConnected(500):
+        # Already running! Send message to show existing window
+        socket.write(b"SHOW")
+        socket.waitForBytesWritten(500)
+        socket.disconnectFromServer()
+        logger.info("Another instance is already running. Exiting.")
+        sys.exit(0)
+        
+    # Start local server to listen for new attempts
+    server = QLocalServer()
+    server.removeServer(server_name)
+    server.listen(server_name)
+    app.local_server = server  # Store reference to prevent garbage collection
+    
+    # 3.2 Show Splash Screen immediately
+    from PySide6.QtWidgets import QSplashScreen
+    from PySide6.QtGui import QPixmap
+    from PySide6.QtCore import Qt
+    
+    if getattr(sys, 'frozen', False):
+        logo_path = os.path.join(sys._MEIPASS, "src", "assets", "logo.png")
+    else:
+        logo_path = os.path.join(os.path.dirname(__file__), "assets", "logo.png")
+        
+    splash = None
+    if os.path.exists(logo_path):
+        pixmap = QPixmap(logo_path)
+        splash = QSplashScreen(pixmap, Qt.WindowStaysOnTopHint)
+        splash.showMessage("BahaaIT Network Tools — Chargement...", Qt.AlignBottom | Qt.AlignCenter, Qt.white)
+        splash.show()
+        app.processEvents()
+    
     # Auth
     auth_manager = AuthManager()
     
     # 4. Show Main Window
     window = MainWindow(logger, log_handler, auth_manager)
+    
+    # Connect local server to show main window on future launch attempts
+    def handle_new_connection():
+        client = server.nextPendingConnection()
+        if client.waitForReadyRead(1000):
+            data = client.readAll().data()
+            if data == b"SHOW":
+                window.showNormal()
+                window.activateWindow()
+                window.raise_()
+    server.newConnection.connect(handle_new_connection)
+    
     window.show()
+    
+    # Hide splash screen when window is ready
+    if splash:
+        splash.finish(window)
     
     # 5. Check for updates (silent on startup)
     window.updater = AutoUpdater(window)

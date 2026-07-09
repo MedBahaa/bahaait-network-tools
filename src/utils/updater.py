@@ -9,7 +9,7 @@ from PySide6.QtCore import QObject, Signal, Slot, Qt
 from utils.i18n import _
 
 GITHUB_REPO = "MedBahaa/bahaait-network-tools"
-CURRENT_VERSION = "v3.0.1"
+CURRENT_VERSION = "v3.2.1"
 
 class UpdateWorker(QObject):
     update_available = Signal(str, str, str, str)  # latest_version, release_notes, download_url, exe_url

@@ -82,7 +82,11 @@ class AuthManager:
         os.makedirs(base_dir, exist_ok=True)
         self.session_file = os.path.join(base_dir, "session.json")
         self.user = None
-        self.load_session()
+        
+        # Load session asynchronously in a background thread to prevent blocking main UI thread at startup
+        import threading
+        threading.Thread(target=self.load_session, daemon=True).start()
+
 
     def load_session(self):
         if os.path.exists(self.session_file):

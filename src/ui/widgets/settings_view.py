@@ -864,12 +864,11 @@ class SettingsView(QWidget):
                 self.test_email_btn.setText(_("settings_email_test_btn"))
                 return
         else:
-            import base64
+            from utils.config import get_obfuscated_credentials
             host = "smtp.gmail.com"
             port = 465
-            user = base64.b64decode(b"YmFoYWFpdG5ldHdvcmt0b29sc0BnbWFpbC5jb20=").decode("utf-8")
-            password = base64.b64decode(b"cmdzcm9kZ2d0ZmJwc2hhag==").decode("utf-8")
-            sender = base64.b64decode(b"YmFoYWFpdG5ldHdvcmt0b29sc0BnbWFpbC5jb20=").decode("utf-8")
+            user, password = get_obfuscated_credentials()
+            sender = user
             
         from utils.email_notifier import EmailTestWorker
         self.test_worker = EmailTestWorker(host, port, user, password, sender, recipient)

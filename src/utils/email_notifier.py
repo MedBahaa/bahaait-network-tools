@@ -59,12 +59,11 @@ class EmailNotifier:
             smtp_pass = self.config_manager.get("email_smtp_password", "")
             sender = self.config_manager.get("email_sender", "")
         else:
-            import base64
+            from utils.config import get_obfuscated_credentials
             smtp_host = "smtp.gmail.com"
             smtp_port = 465
-            smtp_user = base64.b64decode(b"YmFoYWFpdG5ldHdvcmt0b29sc0BnbWFpbC5jb20=").decode("utf-8")
-            smtp_pass = base64.b64decode(b"cmdzcm9kZ2d0ZmJwc2hhag==").decode("utf-8")
-            sender = base64.b64decode(b"YmFoYWFpdG5ldHdvcmt0b29sc0BnbWFpbC5jb20=").decode("utf-8")
+            smtp_user, smtp_pass = get_obfuscated_credentials()
+            sender = smtp_user
             
         recipient = self.config_manager.get("email_recipient", "")
 
