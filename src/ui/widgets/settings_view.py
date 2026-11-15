@@ -612,9 +612,9 @@ class SettingsView(QWidget):
         executable_path = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(sys.argv[0])
         try:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE) as key:
-                if state == Qt.Checked:
-                    winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, f'"{executable_path}"')
-                    self.logger.info("Auto-start enabled")
+                if state == Qt.Checked or state == 2:  # Qt.Checked is 2 in PySide6 stateChanged signal
+                    winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, f'"{executable_path}" --silent')
+                    self.logger.info("Auto-start enabled (silent)")
                 else:
                     winreg.DeleteValue(key, app_name)
                     self.logger.info("Auto-start disabled")
@@ -739,7 +739,9 @@ class SettingsView(QWidget):
             
         config_data = {}
         if self.config:
-            config_data = self.config.config
+            config_data = self.config.config.copy()
+            if config_data.get("email_smtp_password"):
+                config_data["email_smtp_password"] = self.config.encrypt_value(config_data["email_smtp_password"])
             
         success, msg = self.cloud_sync.backup_config(config_data)
         if success:
@@ -753,9 +755,21 @@ class SettingsView(QWidget):
             return
             
         success, data = self.cloud_sync.restore_config()
-        if success and self.config:
+        if success and isinstance(data, dict) and self.config:
             for key, val in data.items():
-                self.config.set(key, val)
+                if key == "email_smtp_password" and val:
+                    val = self.config.decrypt_value(val)
+                self.config.config[key] = val
+            self.config.save()
+
+            # Synchronize restored monitored_hosts with SQLite DB
+            for host_addr in data.get("monitored_hosts", []):
+                if isinstance(host_addr, str) and host_addr.strip():
+                    self.db.add_host(host_addr.strip())
+                elif isinstance(host_addr, dict) and host_addr.get("address"):
+                    self.db.add_host(host_addr["address"], host_addr.get("label"))
+
+            self.load_settings_to_ui()
             QMessageBox.information(self, _("settings_cloud_sync", "Cloud Sync"), _("settings_sync_restored", "Configuration restored successfully. A restart is recommended."))
             self.logger.info("Configuration restored from cloud.")
         else:
@@ -905,8 +919,10 @@ class SettingsView(QWidget):
             return
             
         try:
-            # 1. Fetch config dict
+            # 1. Fetch config dict (encrypt sensitive fields before exporting)
             config_data = self.config.config.copy() if self.config else {}
+            if self.config and config_data.get("email_smtp_password"):
+                config_data["email_smtp_password"] = self.config.encrypt_value(config_data["email_smtp_password"])
             # 2. Fetch hosts list from DB
             hosts_data = self.db.get_hosts()
             
@@ -963,7 +979,7 @@ class SettingsView(QWidget):
             for widget in QApplication.topLevelWidgets():
                 if widget.__class__.__name__ == "MainWindow":
                     main_window = widget
-                    if hasattr(widget, 'monitor'):
+                    if getattr(widget, 'monitor', None) is not None:
                         widget.monitor.stop_monitor()
                     break
 
@@ -972,6 +988,8 @@ class SettingsView(QWidget):
             if self.config:
                 # Merge keys
                 for k, v in imported_config.items():
+                    if k == "email_smtp_password" and v:
+                        v = self.config.decrypt_value(v)
                     self.config.config[k] = v
                 self.config.save()
                 
@@ -1008,11 +1026,22 @@ class SettingsView(QWidget):
             if reply == QMessageBox.Yes:
                 import sys
                 import subprocess
+                app = QApplication.instance()
+                if app and hasattr(app, "local_server") and app.local_server:
+                    try:
+                        app.local_server.close()
+                        from PySide6.QtNetwork import QLocalServer
+                        QLocalServer.removeServer("BahaaIT_Single_Instance_Lock")
+                    except Exception:
+                        pass
                 if getattr(sys, 'frozen', False):
                     subprocess.Popen([sys.executable])
                 else:
                     subprocess.Popen([sys.executable] + sys.argv)
-                QApplication.quit()
+                if main_window is not None:
+                    main_window.quit_app()
+                else:
+                    QApplication.quit()
             else:
                 # Just refresh the active UI values so they don't get overwritten on subsequent settings saves
                 self.load_settings_to_ui()

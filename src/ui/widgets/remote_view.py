@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                              QPushButton, QLineEdit, QTextEdit, QFrame, QComboBox)
 from PySide6.QtCore import Qt, QThread, Signal
+import getpass
 import socket
 import serial
 import paramiko
@@ -391,6 +392,7 @@ class TelnetWorker(QThread):
         self.running = True
 
     def run(self):
+        s = None
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(10)
@@ -407,6 +409,12 @@ class TelnetWorker(QThread):
                 self.msleep(100)
         except Exception as e:
             self.error_occurred.emit(str(e))
+        finally:
+            if s:
+                try:
+                    s.close()
+                except Exception:
+                    pass
 
     def stop(self):
         self.running = False
@@ -424,6 +432,7 @@ class SerialWorker(QThread):
         self.running = True
 
     def run(self):
+        ser = None
         try:
             ser = serial.Serial(self.port, self.baud, timeout=0.1)
             self.connected.emit(ser)
@@ -435,6 +444,12 @@ class SerialWorker(QThread):
                 self.msleep(100)
         except Exception as e:
             self.error_occurred.emit(str(e))
+        finally:
+            if ser:
+                try:
+                    ser.close()
+                except Exception:
+                    pass
 
     def stop(self):
         self.running = False

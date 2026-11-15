@@ -9,3 +9,5 @@ sqlalchemy
 pyqtgraph
 supabase
 reportlab
+paramiko
+pyserial

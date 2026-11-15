@@ -2,6 +2,9 @@ from supabase import create_client, Client
 import supabase._sync.client
 import os
 import json
+import logging
+
+logger = logging.getLogger("BahaaIT")
 import re
 import base64
 import ctypes
@@ -98,8 +101,8 @@ class AuthManager:
                 res = self.client.auth.set_session(data.get("access_token"), data.get("refresh_token"))
                 if res.user:
                     self.user = res.user
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Error loading session: {e}", exc_info=True)
 
     def save_session(self, session):
         try:
@@ -111,14 +114,14 @@ class AuthManager:
             with open(self.session_file, "wb") as f:
                 f.write(encrypted_data)
         except Exception as e:
-            print(f"Error saving session: {e}")
+            logger.error(f"Error saving session: {e}", exc_info=True)
 
     def clear_session(self):
         if os.path.exists(self.session_file):
             try:
                 os.remove(self.session_file)
-            except Exception:
-                pass
+            except OSError as e:
+                logger.error(f"Error deleting session file: {e}")
 
     def login(self, email, password):
         try:
@@ -140,8 +143,8 @@ class AuthManager:
     def logout(self):
         try:
             self.client.auth.sign_out()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Error signing out of Supabase: {e}")
         self.user = None
         self.clear_session()
         

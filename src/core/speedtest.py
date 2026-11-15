@@ -19,8 +19,12 @@ class SpeedTestWorker(QThread):
             st = speedtest.Speedtest(secure=True)
             
             if self.server_data:
-                self.status_update.emit(f"Connecting to {self.server_data['name']}...")
-                st.servers = {0: [self.server_data]}
+                self.status_update.emit(f"Connecting to {self.server_data.get('name', 'Server')}...")
+                srv = dict(self.server_data)
+                srv.setdefault('d', float(srv.get('distance', 0.0) or 0.0))
+                if 'url' not in srv and 'host' in srv:
+                    srv['url'] = f"http://{srv['host']}/speedtest/upload.php"
+                st.servers = {0: [srv]}
                 best = st.get_best_server()
             else:
                 self.status_update.emit("Selecting optimal server...")
@@ -152,8 +156,16 @@ class ServerListWorker(QThread):
                         res = requests.get(f"https://www.speedtest.net/api/js/servers?engine=js&search={city}&limit=3", timeout=3)
                         data = res.json()
                         for s in data:
-                            # Convert id to string to match speedtest-cli format
+                            # Convert id to string and normalize fields for speedtest-cli compatibility
                             s['id'] = str(s['id'])
+                            try:
+                                dist_val = float(s.get('distance', s.get('d', 0.0)) or 0.0)
+                            except (ValueError, TypeError):
+                                dist_val = 0.0
+                            s['distance'] = dist_val
+                            s['d'] = dist_val
+                            if 'url' not in s and 'host' in s:
+                                s['url'] = f"http://{s['host']}/speedtest/upload.php"
                             if not any(x['id'] == s['id'] for x in final_list):
                                 final_list.append(s)
                     except Exception:

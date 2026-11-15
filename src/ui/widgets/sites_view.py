@@ -22,19 +22,44 @@ class PingWorker(QThread):
     
     def run(self):
         try:
-            param = "-n" if platform.system().lower() == "windows" else "-c"
+            from icmplib import ping as icmp_ping
+            response = icmp_ping(self.ip, count=1, timeout=2)
+            if response.is_alive:
+                latency = float(response.avg_rtt)
+                if latency <= 0:
+                    latency = 1.0
+                self.result.emit(self.row_index, "up", latency)
+            else:
+                self.result.emit(self.row_index, "down", 0.0)
+            return
+        except Exception:
+            pass
+
+        try:
+            import re
+            is_win = platform.system().lower() == "windows"
+            param = "-n" if is_win else "-c"
             cmd = ["ping", param, "1", "-w", "2000", self.ip]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5,
-                                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system().lower() == "windows" else 0)
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="cp850" if is_win else None,
+                errors="replace",
+                timeout=5,
+                creationflags=subprocess.CREATE_NO_WINDOW if is_win else 0
+            )
             
             if result.returncode == 0:
-                # Parse latency from output
-                import re
                 output = result.stdout
-                # Windows: Average = XXms  |  Linux: time=XX.X ms
-                match = re.search(r'(?:time[=<]|Average\s*=\s*)(\d+\.?\d*)\s*ms', output, re.IGNORECASE)
-                latency = float(match.group(1)) if match else 0.0
-                self.result.emit(self.row_index, "up", latency)
+                # Support English (time=, Average =) and French (temps=, Moyenne =) and <1ms
+                match = re.search(r'(?:time|temps|Average|Moyenne)\s*[=<]\s*(\d+\.?\d*)\s*ms', output, re.IGNORECASE)
+                if match:
+                    latency = max(1.0, float(match.group(1)))
+                    self.result.emit(self.row_index, "up", latency)
+                else:
+                    # Destination host unreachable returns code 0 without time=/temps=
+                    self.result.emit(self.row_index, "down", 0.0)
             else:
                 self.result.emit(self.row_index, "down", 0.0)
         except Exception:

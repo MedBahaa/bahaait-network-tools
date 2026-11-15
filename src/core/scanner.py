@@ -137,8 +137,10 @@ class Scanner(QObject):
             return self._scan_arp_table(ip_range)
         
         # For /24 networks, try Scapy ARP first, then fallback to ICMP
+        delegated = False
         try:
             if not SCAPY_AVAILABLE:
+                delegated = True
                 return self.scan_lan(ip_range.rsplit('.', 1)[0])
 
             arp_request = scapy.ARP(pdst=ip_range)
@@ -157,7 +159,7 @@ class Scanner(QObject):
                 hostname = "Unknown"
                 try:
                     hostname = socket.gethostbyaddr(ip)[0]
-                except:
+                except Exception:
                     pass
                 
                 res = {"ip": ip, "mac": mac, "hostname": hostname, "status": "UP"}
@@ -167,13 +169,16 @@ class Scanner(QObject):
             
             # If Scapy found nothing, fallback to ICMP scan
             if not results:
+                delegated = True
                 return self.scan_lan(ip_range.rsplit('.', 1)[0])
                 
         except Exception as e:
             print(f"Scapy Error: {e}")
+            delegated = True
             return self.scan_lan(ip_range.rsplit('.', 1)[0])
         finally:
-            self.finished_signal.emit()
+            if not delegated:
+                self.finished_signal.emit()
         return results
 
     def _scan_arp_table(self, ip_range: str) -> List[Dict[str, Any]]:

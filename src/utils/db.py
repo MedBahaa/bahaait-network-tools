@@ -131,6 +131,19 @@ class DatabaseManager:
             hosts = session.query(Host).all()
             return [{"id": h.id, "address": h.address, "label": h.label, "is_active": h.is_active} for h in hosts]
 
+    def set_host_active(self, address: str, is_active: bool) -> bool:
+        try:
+            with self.Session() as session:
+                host = session.query(Host).filter_by(address=address).first()
+                if host:
+                    host.is_active = bool(is_active)
+                    session.commit()
+                    return True
+                return False
+        except Exception as e:
+            print(f"DB Error (set_host_active): {e}")
+            return False
+
     def delete_host(self, address: str) -> None:
         with self.Session() as session:
             host = session.query(Host).filter_by(address=address).first()
@@ -168,8 +181,32 @@ class DatabaseManager:
             logs = session.query(MonitoringLog).filter_by(host_id=host.id).order_by(MonitoringLog.timestamp.desc()).limit(limit).all()
             return [{"timestamp": log.timestamp.strftime("%Y-%m-%d %H:%M:%S"), "status": log.status, "latency": log.latency, "response": log.response} for log in logs]
 
-    def get_uptime_stats(self, address: str, days: int = 30) -> None:
-        pass
+    def get_uptime_stats(self, address: str, days: int = 30) -> Dict[str, Any]:
+        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        with self.Session() as session:
+            host = session.query(Host).filter_by(address=address).first()
+            if not host:
+                return {"total": 0, "up": 0, "down": 0, "uptime_percent": 0.0, "avg_latency": 0.0}
+            logs = (
+                session.query(MonitoringLog)
+                .filter(MonitoringLog.host_id == host.id, MonitoringLog.timestamp >= cutoff_date)
+                .all()
+            )
+            total = len(logs)
+            if total == 0:
+                return {"total": 0, "up": 0, "down": 0, "uptime_percent": 0.0, "avg_latency": 0.0}
+            up_logs = [log for log in logs if log.status == "UP"]
+            up_count = len(up_logs)
+            down_count = total - up_count
+            uptime_percent = round((up_count / total) * 100.0, 2)
+            avg_latency = round(sum(log.latency or 0 for log in up_logs) / up_count, 2) if up_count else 0.0
+            return {
+                "total": total,
+                "up": up_count,
+                "down": down_count,
+                "uptime_percent": uptime_percent,
+                "avg_latency": avg_latency
+            }
 
     def save_speedtest(self, download: float, upload: float, ping: float, jitter: float, packet_loss: float, server: str, isp: str) -> None:
         try:

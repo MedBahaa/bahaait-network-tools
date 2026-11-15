@@ -49,7 +49,12 @@ class ServerSelectionDialog(QDialog):
         self.list_widget.addItem(auto_item)
         
         for s in servers:
-            item = QListWidgetItem(f"{s.get('ui_name', s.get('name', 'Server'))} ({s['distance']:.0f} km)")
+            try:
+                dist = float(s.get('distance', s.get('d', 0)) or 0)
+            except (ValueError, TypeError):
+                dist = 0.0
+            label_str = f"{s.get('ui_name', s.get('name', 'Server'))} ({dist:.0f} km)" if dist > 0 else f"{s.get('ui_name', s.get('name', 'Server'))}"
+            item = QListWidgetItem(label_str)
             item.setData(Qt.UserRole, s)
             self.list_widget.addItem(item)
             

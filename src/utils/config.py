@@ -1,5 +1,9 @@
 import json
 import os
+import base64
+import logging
+
+logger = logging.getLogger("BahaaIT")
 
 def get_obfuscated_credentials():
     e_parts = ["bahaaitnetworktools", "@gmail.com"]
@@ -43,7 +47,8 @@ class ConfigManager:
             from utils.auth import encrypt_data
             encrypted_bytes = encrypt_data(value.encode('utf-8'))
             return base64.b64encode(encrypted_bytes).decode('utf-8')
-        except Exception:
+        except Exception as e:
+            logger.error(f"Failed to encrypt config value: {e}", exc_info=True)
             return value
 
     def decrypt_value(self, value: str) -> str:
@@ -54,7 +59,8 @@ class ConfigManager:
             decoded_bytes = base64.b64decode(value.encode('utf-8'), validate=True)
             decrypted_bytes = decrypt_data(decoded_bytes)
             return decrypted_bytes.decode('utf-8')
-        except Exception:
+        except Exception as e:
+            logger.error(f"Failed to decrypt config value: {e}", exc_info=True)
             return value
 
     def load(self):
@@ -66,7 +72,11 @@ class ConfigManager:
                         data["email_smtp_password"] = self.decrypt_value(data["email_smtp_password"])
                     # Merge with default to ensure all keys exist
                     return {**self.DEFAULT_CONFIG, **data}
-            except Exception:
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON decoding failed for config file: {e}")
+                return self.DEFAULT_CONFIG.copy()
+            except Exception as e:
+                logger.error(f"Failed to load config file: {e}", exc_info=True)
                 return self.DEFAULT_CONFIG.copy()
         return self.DEFAULT_CONFIG.copy()
 
@@ -78,7 +88,7 @@ class ConfigManager:
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(config_copy, f, indent=4)
         except Exception as e:
-            print(f"Failed to save config: {e}")
+            logger.error(f"Failed to save config: {e}", exc_info=True)
 
     def get(self, key, default=None):
         return self.config.get(key, default)

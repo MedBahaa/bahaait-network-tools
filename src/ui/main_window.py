@@ -77,6 +77,11 @@ class MainWindow(QMainWindow):
         self.load_stylesheet()
         self.setup_views()
         self.update_header_stats()
+        
+        # Setup background preloading queue for lazy-loaded tabs (Indices 1 to 10)
+        self.tabs_to_preload = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        # Start preloading 1.5s after showing main window (leaves CPU free for initial rendering)
+        QTimer.singleShot(1500, self.preload_next_tab)
 
     def setup_header(self):
         self.header_frame = QFrame()
@@ -277,6 +282,7 @@ class MainWindow(QMainWindow):
         self.sidebar_layout.setSpacing(12)
         
         self.nav_buttons = []
+        self.page_nav_buttons = {}
         
         # Navigation Groups
         nav_groups = [
@@ -331,9 +337,11 @@ class MainWindow(QMainWindow):
                 if index == 0:
                     btn.setChecked(True)
                 
+                btn.setProperty("page_index", index)
                 btn.clicked.connect(lambda checked, i=index: self.switch_page(i))
                 self.sidebar_layout.addWidget(btn)
                 self.nav_buttons.append(btn)
+                self.page_nav_buttons[index] = btn
             
         self.sidebar_layout.addStretch()
         
@@ -345,61 +353,97 @@ class MainWindow(QMainWindow):
         placeholder.deleteLater()
         self.content_area.insertWidget(index, widget)
 
-    def switch_page(self, index):
-        if self.content_area.currentIndex() == index:
-            return
-            
-        # Lazy load views on first click
+    def load_tab_by_index(self, index):
+        """Loads a tab by its index if not already loaded. Returns True if a load occurred."""
         if index == 1 and self.monitor is None:
             from ui.widgets.monitor_view import MonitorView
             self.monitor = MonitorView(self.logger, self.alarm_manager, self.config_manager)
             self._replace_placeholder(1, self.monitor)
+            return True
             
         elif index == 2 and self.tools is None:
             from ui.widgets.tools_view import ToolsView
             self.tools = ToolsView(self.logger)
             self._replace_placeholder(2, self.tools)
+            return True
             
         elif index == 3 and self.scanner is None:
             from ui.widgets.scanner_view import ScannerView
             self.scanner = ScannerView(self.logger)
             self._replace_placeholder(3, self.scanner)
+            return True
             
         elif index == 4 and self.config is None:
             from ui.widgets.config_view import ConfigView
             self.config = ConfigView(self.logger, self.config_manager)
             self._replace_placeholder(4, self.config)
+            return True
             
         elif index == 5 and self.settings is None:
             from ui.widgets.settings_view import SettingsView
             self.settings = SettingsView(self.logger, self.alarm_manager, self.config_manager, self.auth_manager)
             self._replace_placeholder(5, self.settings)
+            return True
             
         elif index == 6 and self.speedtest is None:
             from ui.widgets.speedtest_view import SpeedtestView
             self.speedtest = SpeedtestView(self.logger)
             self._replace_placeholder(6, self.speedtest)
+            return True
             
         elif index == 7 and self.browser_view is None:
             from ui.widgets.browser_view import BrowserView
             self.browser_view = BrowserView(self.logger)
             self._replace_placeholder(7, self.browser_view)
+            return True
             
         elif index == 8 and self.remote_view is None:
             from ui.widgets.remote_view import RemoteView
             self.remote_view = RemoteView(self.logger)
             self._replace_placeholder(8, self.remote_view)
+            return True
             
         elif index == 9 and self.service_status_view is None:
             from ui.widgets.service_status_view import ServiceStatusView
             self.service_status_view = ServiceStatusView(self.logger)
             self._replace_placeholder(9, self.service_status_view)
+            return True
             
         elif index == 10 and self.sites_view is None:
             from ui.widgets.sites_view import SitesView
             self.sites_view = SitesView(self.logger, self.config_manager)
             self.sites_view.open_in_browser.connect(self._open_site_in_browser)
             self._replace_placeholder(10, self.sites_view)
+            return True
+            
+        return False
+
+    def preload_next_tab(self):
+        """Sequentially preloads tabs in the background when the main thread is idle."""
+        if not hasattr(self, "tabs_to_preload") or not self.tabs_to_preload:
+            return
+            
+        # Get the next tab to preload
+        index = self.tabs_to_preload.pop(0)
+        
+        try:
+            self.load_tab_by_index(index)
+        except Exception as e:
+            self.logger.error(f"Error preloading tab {index} in background: {e}")
+            
+        # Schedule the next preload after a 600ms delay to keep the UI perfectly smooth
+        QTimer.singleShot(600, self.preload_next_tab)
+
+    def switch_page(self, index):
+        if self.content_area.currentIndex() == index:
+            return
+            
+        # Load the tab immediately if not already preloaded
+        self.load_tab_by_index(index)
+        
+        # Remove from preload queue if it is still there
+        if hasattr(self, "tabs_to_preload") and index in self.tabs_to_preload:
+            self.tabs_to_preload.remove(index)
             
         widget = self.content_area.widget(index)
         self.content_area.setCurrentIndex(index)
@@ -450,11 +494,32 @@ class MainWindow(QMainWindow):
         self.browser_view.address_bar.setText(url)
         self.browser_view.navigate()
         self.switch_page(7)
-        # Update sidebar button state
-        for btn in self.nav_buttons:
-            btn.setChecked(False)
-        if len(self.nav_buttons) > 7:
-            self.nav_buttons[7].setChecked(True)
+        # Update sidebar button state using page index mapping (7 = Web Manager)
+        if 7 in self.page_nav_buttons:
+            self.page_nav_buttons[7].setChecked(True)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and hasattr(self, "header_frame"):
+            if self.header_frame.geometry().contains(event.position().toPoint()):
+                if self.windowHandle() and hasattr(self.windowHandle(), "startSystemMove"):
+                    self.windowHandle().startSystemMove()
+                    event.accept()
+                    return
+                self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() & Qt.LeftButton and getattr(self, "_drag_pos", None) is not None:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+        super().mouseReleaseEvent(event)
 
     def load_stylesheet(self):
         import os
@@ -463,11 +528,36 @@ class MainWindow(QMainWindow):
             with open(style_path, "r") as f:
                 self.setStyleSheet(f.read())
 
+    def _cleanup_before_exit(self):
+        """Cleanly stop timers, background threads, tray icon, and DB connections before exit."""
+        try:
+            if hasattr(self, "header_timer") and self.header_timer:
+                self.header_timer.stop()
+            if getattr(self, "dashboard", None) is not None and hasattr(self.dashboard, "timer"):
+                self.dashboard.timer.stop()
+            if getattr(self, "monitor", None) is not None:
+                self.monitor.stop_monitor()
+            if getattr(self, "remote_view", None) is not None and getattr(self.remote_view, "worker", None):
+                self.remote_view.disconnect()
+            if getattr(self, "alarm_manager", None) is not None:
+                self.alarm_manager.stop()
+            if getattr(self, "tray_manager", None) is not None and getattr(self.tray_manager, "tray_icon", None):
+                self.tray_manager.tray_icon.hide()
+            if getattr(self, "dashboard", None) is not None and hasattr(self.dashboard, "db"):
+                self.dashboard.db.engine.dispose()
+            from PySide6.QtWidgets import QApplication
+            app = QApplication.instance()
+            if app and hasattr(app, "local_server") and app.local_server:
+                app.local_server.close()
+        except Exception:
+            pass
+
     def closeEvent(self, event):
         if self._force_quit:
+            self._cleanup_before_exit()
             event.accept()
-            import os
-            os._exit(0)
+            from PySide6.QtWidgets import QApplication
+            QApplication.quit()
             return
             
         if self.config_manager.get("minimize_to_tray", False):
@@ -475,9 +565,10 @@ class MainWindow(QMainWindow):
             self.hide()
             self.tray_manager.notify(_("tray_hidden_title"), _("tray_hidden_msg"))
         else:
+            self._cleanup_before_exit()
             event.accept()
-            import os
-            os._exit(0)
+            from PySide6.QtWidgets import QApplication
+            QApplication.quit()
 
     def quit_app(self):
         self._force_quit = True

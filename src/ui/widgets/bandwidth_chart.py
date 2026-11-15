@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QAreaSeries, QDateTimeAxis, QValueAxis
-from PySide6.QtCore import Qt, QTimer, QDateTime
+from PySide6.QtCore import Qt, QTimer, QDateTime, QPointF
 from PySide6.QtGui import QPainter, QPen, QColor, QLinearGradient, QGradient
 import psutil
 import time
@@ -82,12 +82,13 @@ class BandwidthChart(QWidget):
         self.chart_view.setStyleSheet("background: transparent;")
         self.layout.addWidget(self.chart_view)
 
-        # Data tracking
+        # Data tracking (canonical storage in KB/s to avoid unit-mixing)
         self.last_recv = psutil.net_io_counters().bytes_recv
         self.last_sent = psutil.net_io_counters().bytes_sent
         self.last_time = time.time()
         self.max_points = 60
         self.unit = "KB/s"
+        self.raw_history = []  # List of (timestamp_ms, dl_kb, ul_kb)
         self.current_dl_mbps = 0.0
         self.current_ul_mbps = 0.0
 
@@ -103,49 +104,62 @@ class BandwidthChart(QWidget):
             current_time = time.time()
             
             elapsed = current_time - self.last_time
-            if elapsed <= 0: return
+            if elapsed <= 0:
+                return
 
-            # Calculate speeds in KB/s initially
-            dl_speed_kb = (current_recv - self.last_recv) / 1024 / elapsed
-            ul_speed_kb = (current_sent - self.last_sent) / 1024 / elapsed
+            # Calculate speeds in KB/s
+            dl_speed_kb = max(0.0, (current_recv - self.last_recv) / 1024.0 / elapsed)
+            ul_speed_kb = max(0.0, (current_sent - self.last_sent) / 1024.0 / elapsed)
             
-            # Determine unit dynamically based on max speed
+            # Determine display unit for live indicators
             max_current = max(dl_speed_kb, ul_speed_kb)
             if max_current > 1024:
-                display_unit = "MB/s"
-                dl_display = dl_speed_kb / 1024
-                ul_display = ul_speed_kb / 1024
+                ind_unit = "MB/s"
+                dl_ind = dl_speed_kb / 1024.0
+                ul_ind = ul_speed_kb / 1024.0
             else:
-                display_unit = "KB/s"
-                dl_display = dl_speed_kb
-                ul_display = ul_speed_kb
+                ind_unit = "KB/s"
+                dl_ind = dl_speed_kb
+                ul_ind = ul_speed_kb
 
-            self.dl_indicator.setText(f"{_('bw_download')}: {dl_display:.2f} {display_unit}")
-            self.ul_indicator.setText(f"{_('bw_upload')}: {ul_display:.2f} {display_unit}")
+            self.dl_indicator.setText(f"{_('bw_download')}: {dl_ind:.2f} {ind_unit}")
+            self.ul_indicator.setText(f"{_('bw_upload')}: {ul_ind:.2f} {ind_unit}")
             
             # Store for external access (in Mbps for gauges)
-            self.current_dl_mbps = dl_speed_kb * 8 / 1024 # KB/s to Mbps
-            self.current_ul_mbps = ul_speed_kb * 8 / 1024 # KB/s to Mbps
+            self.current_dl_mbps = dl_speed_kb * 8 / 1024.0
+            self.current_ul_mbps = ul_speed_kb * 8 / 1024.0
             
             now = QDateTime.currentDateTime().toMSecsSinceEpoch()
-            self.download_line.append(now, dl_display)
-            self.upload_line.append(now, ul_display)
+            self.raw_history.append((now, dl_speed_kb, ul_speed_kb))
+            if len(self.raw_history) > self.max_points:
+                self.raw_history.pop(0)
 
-            if self.download_line.count() > self.max_points:
-                self.download_line.remove(0)
-                self.upload_line.remove(0)
+            # Determine consistent unit across the entire visible chart window
+            max_window_kb = max(( max(d, u) for _, d, u in self.raw_history ), default=0.0)
+            chart_unit = "MB/s" if max_window_kb > 1024 else "KB/s"
+            scale = (1.0 / 1024.0) if chart_unit == "MB/s" else 1.0
+
+            if chart_unit != self.unit:
+                # Rescale all historical points to the new unit so units never mix
+                self.unit = chart_unit
+                self.download_line.replace([QPointF(ts, d * scale) for ts, d, _ in self.raw_history])
+                self.upload_line.replace([QPointF(ts, u * scale) for ts, _, u in self.raw_history])
+            else:
+                self.download_line.append(now, dl_speed_kb * scale)
+                self.upload_line.append(now, ul_speed_kb * scale)
+                if self.download_line.count() > self.max_points:
+                    self.download_line.remove(0)
+                    self.upload_line.remove(0)
 
             # Update X Axis Range
             self.axis_x.setRange(QDateTime.fromMSecsSinceEpoch(now - (self.max_points * 1000)), 
                                 QDateTime.fromMSecsSinceEpoch(now))
             
-            # Dynamic Y Axis Range
-            max_val = 0
-            for p in self.download_line.points(): max_val = max(max_val, p.y())
-            for p in self.upload_line.points(): max_val = max(max_val, p.y())
-            
-            self.axis_y.setTitleText(display_unit)
-            self.axis_y.setRange(0, max(max_val * 1.2, 10))
+            # Dynamic Y Axis Range in consistent chart_unit
+            max_val = max_window_kb * scale
+            self.axis_y.setTitleText(chart_unit)
+            default_min_top = 1.0 if chart_unit == "MB/s" else 10.0
+            self.axis_y.setRange(0, max(max_val * 1.2, default_min_top))
 
             self.last_recv = current_recv
             self.last_sent = current_sent

@@ -24,14 +24,24 @@ class MonitorView(QWidget):
         self.is_monitoring_active = False
         self.graph_dialogs = {} # {host: dialog}
         
-        # Load from config or use defaults
-        saved_hosts = self.db.get_hosts() # Load from DB for labels
+        # Load from DB or seed from config defaults on first run
+        saved_hosts = self.db.get_hosts()
+        if not saved_hosts and self.config:
+            default_hosts = self.config.get("monitored_hosts", [])
+            for item in default_hosts:
+                if isinstance(item, str) and item.strip():
+                    self.db.add_host(item.strip(), item.strip())
+                elif isinstance(item, dict) and item.get("address"):
+                    self.db.add_host(item["address"], item.get("label") or item["address"])
+            saved_hosts = self.db.get_hosts()
+
         self.hosts = {}
         for h in saved_hosts:
+            is_active = bool(h.get('is_active', True))
             self.hosts[h['address']] = {
                 "label": h['label'] or "N/A",
-                "active": True, 
-                "status": "N/A", 
+                "active": is_active, 
+                "status": "N/A" if is_active else "PAUSED", 
                 "latency": 0, 
                 "logs": [],
                 "consecutive_down": 0,
@@ -281,6 +291,7 @@ class MonitorView(QWidget):
     def toggle_pause(self, host):
         if host in self.hosts:
             self.hosts[host]["active"] = not self.hosts[host]["active"]
+            self.db.set_host_active(host, self.hosts[host]["active"])
             status = "resumed" if self.hosts[host]["active"] else "paused"
             if not self.hosts[host]["active"]:
                 self.hosts[host]["status"] = "PAUSED"

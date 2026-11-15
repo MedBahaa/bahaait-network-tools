@@ -44,22 +44,37 @@ class NetworkConfig:
                                  shell=True, capture_output=True, text=True, encoding='cp850')
             output = res.stdout
             
-            # Gateway
-            gw_match = re.search(r"(?:Default Gateway|Passerelle par d\wfaut)\s*:\s*([\d\.]+)", output)
-            if gw_match: config["gateway"] = gw_match.group(1)
+            # Gateway (supports English and French CP850/UTF-8 encodings)
+            gw_match = re.search(r"(?:Default Gateway|Passerelle par d.faut)\s*:\s*([\d\.]+)", output, re.IGNORECASE)
+            if gw_match:
+                config["gateway"] = gw_match.group(1)
             
-            # DNS
-            dns_matches = re.findall(r"(?:Statically Configured DNS Servers|Serveurs DNS configur\ws statiquement)\s*:\s*([\d\.]+)|(?:\s+)\s+([\d\.]+)", output)
-            # This regex is a bit simplified, let's refine
-            dns_list = re.findall(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})", output)
-            # Remove IP and Mask from list to find DNS
-            for val in [config["ip"], config["mask"], config["gateway"]]:
-                if val in dns_list: dns_list.remove(val)
+            # Parse DNS section specifically (handles both Static and DHCP DNS in FR/EN)
+            dns_list = []
+            in_dns_block = False
+            for line in output.splitlines():
+                if "dns" in line.lower() and ":" in line:
+                    in_dns_block = True
+                    ip_match = re.search(r"(\d{1,3}(?:\.\d{1,3}){3})", line)
+                    if ip_match:
+                        dns_list.append(ip_match.group(1))
+                elif in_dns_block:
+                    # Indented continuation line for secondary DNS (no colon)
+                    if ":" not in line:
+                        ip_match = re.search(r"(\d{1,3}(?:\.\d{1,3}){3})", line)
+                        if ip_match:
+                            dns_list.append(ip_match.group(1))
+                        else:
+                            in_dns_block = False
+                    else:
+                        in_dns_block = False
+
+            if len(dns_list) > 0:
+                config["dns1"] = dns_list[0]
+            if len(dns_list) > 1:
+                config["dns2"] = dns_list[1]
             
-            if len(dns_list) > 0: config["dns1"] = dns_list[0]
-            if len(dns_list) > 1: config["dns2"] = dns_list[1]
-            
-        except:
+        except Exception:
             pass
             
         return config

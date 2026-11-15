@@ -15,10 +15,10 @@ if os.name == 'nt':
     _original_popen = subprocess.Popen
     class _PatchedPopen(_original_popen):
         def __init__(self, *args, **kwargs):
-            if 'creationflags' not in kwargs:
-                kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
-            else:
-                kwargs['creationflags'] |= subprocess.CREATE_NO_WINDOW
+            flags = kwargs.get('creationflags', 0)
+            # DETACHED_PROCESS (0x00000008) and CREATE_NEW_CONSOLE (0x00000010) cannot be combined with CREATE_NO_WINDOW
+            if not (flags & (getattr(subprocess, 'DETACHED_PROCESS', 0x00000008) | getattr(subprocess, 'CREATE_NEW_CONSOLE', 0x00000010))):
+                kwargs['creationflags'] = flags | subprocess.CREATE_NO_WINDOW
             super().__init__(*args, **kwargs)
     subprocess.Popen = _PatchedPopen
 
@@ -27,13 +27,9 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__))))
 
 from PySide6.QtWidgets import QApplication
 from ui.main_window import MainWindow
-from ui.widgets.login_view import LoginDialog
 from utils.logger import setup_logger
-from utils.admin import is_admin, run_as_admin
 from utils.auth import AuthManager
 from utils.updater import AutoUpdater
-import json
-
 from utils.config import ConfigManager
 
 def main():
@@ -87,10 +83,11 @@ def main():
     server.listen(server_name)
     app.local_server = server  # Store reference to prevent garbage collection
     
-    # 3.2 Show Splash Screen immediately
-    from PySide6.QtWidgets import QSplashScreen
-    from PySide6.QtGui import QPixmap
-    from PySide6.QtCore import Qt
+    # Check if application should start silently (minimized to system tray)
+    is_silent = "--silent" in sys.argv
+    
+    # 3.2 Show Splash Screen immediately (Premium Custom Widget) - only if not running silently
+    from ui.widgets.premium_splash import PremiumSplashScreen
     
     if getattr(sys, 'frozen', False):
         logo_path = os.path.join(sys._MEIPASS, "src", "assets", "logo.png")
@@ -98,17 +95,19 @@ def main():
         logo_path = os.path.join(os.path.dirname(__file__), "assets", "logo.png")
         
     splash = None
-    if os.path.exists(logo_path):
-        pixmap = QPixmap(logo_path)
-        splash = QSplashScreen(pixmap, Qt.WindowStaysOnTopHint)
-        splash.showMessage("BahaaIT Network Tools — Chargement...", Qt.AlignBottom | Qt.AlignCenter, Qt.white)
-        splash.show()
-        app.processEvents()
+    if not is_silent:
+        splash = PremiumSplashScreen(logo_path)
+        splash.show_splash()
+        splash.set_progress(15, "Initialisation du moteur système...")
     
     # Auth
+    if splash:
+        splash.set_progress(45, "Vérification des droits d'accès...")
     auth_manager = AuthManager()
     
     # 4. Show Main Window
+    if splash:
+        splash.set_progress(75, "Chargement du thème & de l'interface...")
     window = MainWindow(logger, log_handler, auth_manager)
     
     # Connect local server to show main window on future launch attempts
@@ -122,11 +121,14 @@ def main():
                 window.raise_()
     server.newConnection.connect(handle_new_connection)
     
-    window.show()
-    
-    # Hide splash screen when window is ready
     if splash:
+        splash.set_progress(100, "Prêt !")
+        # Hide splash screen with smooth fade-out and reveal main window
         splash.finish(window)
+    elif is_silent:
+        # If starting silently, do not call window.show() or splash.finish().
+        # The window remains hidden and the application runs in background tray icon.
+        logger.info("Application started silently in background.")
     
     # 5. Check for updates (silent on startup)
     window.updater = AutoUpdater(window)
