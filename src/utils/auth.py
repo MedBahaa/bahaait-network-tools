@@ -15,52 +15,83 @@ SUPABASE_URL = base64.b64decode(b"aHR0cHM6Ly91ZmFuZWNoYWFsYWhiZXJyeXNuaC5zdXBhYm
 SUPABASE_KEY = base64.b64decode(b"c2JfcHVibGlzaGFibGVfSl9Ba196b2tBWlozZVVBaHlwSGN2d19jLV9oVUF2VA==").decode("utf-8")
 
 # Windows DPAPI definitions for secure token encryption
+DPAPI_HEADER = b"\x01\x00\x00\x00\xd0\x8c\x9d\xdf\x01\x15\xd1\x11\x8c\x7a\x00\xc0\x4f\xc2\x97\xeb"
+
 class DATA_BLOB(ctypes.Structure):
     _fields_ = [
         ('cbData', wintypes.DWORD),
         ('pbData', ctypes.POINTER(ctypes.c_char))
     ]
 
+if os.name == 'nt':
+    _crypt32 = ctypes.windll.crypt32
+    _kernel32 = ctypes.windll.kernel32
+
+    _crypt32.CryptProtectData.argtypes = [
+        ctypes.POINTER(DATA_BLOB),
+        wintypes.LPCWSTR,
+        ctypes.POINTER(DATA_BLOB),
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.POINTER(DATA_BLOB),
+    ]
+    _crypt32.CryptProtectData.restype = wintypes.BOOL
+
+    _crypt32.CryptUnprotectData.argtypes = [
+        ctypes.POINTER(DATA_BLOB),
+        ctypes.c_void_p,
+        ctypes.POINTER(DATA_BLOB),
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.POINTER(DATA_BLOB),
+    ]
+    _crypt32.CryptUnprotectData.restype = wintypes.BOOL
+
+    _kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    _kernel32.LocalFree.restype = ctypes.c_void_p
+
 def encrypt_data(data: bytes) -> bytes:
     """Encrypts data using Windows DPAPI (CryptProtectData)."""
-    if os.name != 'nt':
+    if os.name != 'nt' or not data:
         return data
-    crypt32 = ctypes.windll.crypt32
-    in_blob = DATA_BLOB()
-    in_blob.cbData = len(data)
-    in_blob.pbData = ctypes.cast(ctypes.create_string_buffer(data), ctypes.POINTER(ctypes.c_char))
+    buf = ctypes.create_string_buffer(data, len(data))
+    in_blob = DATA_BLOB(len(data), ctypes.cast(buf, ctypes.POINTER(ctypes.c_char)))
     out_blob = DATA_BLOB()
-    success = crypt32.CryptProtectData(
+    success = _crypt32.CryptProtectData(
         ctypes.byref(in_blob),
-        wintypes.LPCWSTR("BahaaIT Session"),
+        "BahaaIT Session",
         None, None, None, 0,
         ctypes.byref(out_blob)
     )
     if not success:
         raise ctypes.WinError()
-    encrypted_bytes = ctypes.string_at(out_blob.pbData, out_blob.cbData)
-    ctypes.windll.kernel32.LocalFree(out_blob.pbData)
-    return encrypted_bytes
+    try:
+        return ctypes.string_at(out_blob.pbData, out_blob.cbData)
+    finally:
+        if out_blob.pbData:
+            _kernel32.LocalFree(ctypes.cast(out_blob.pbData, ctypes.c_void_p))
 
 def decrypt_data(data: bytes) -> bytes:
     """Decrypts data using Windows DPAPI (CryptUnprotectData)."""
-    if os.name != 'nt':
+    if os.name != 'nt' or not data:
         return data
-    crypt32 = ctypes.windll.crypt32
-    in_blob = DATA_BLOB()
-    in_blob.cbData = len(data)
-    in_blob.pbData = ctypes.cast(ctypes.create_string_buffer(data), ctypes.POINTER(ctypes.c_char))
+    buf = ctypes.create_string_buffer(data, len(data))
+    in_blob = DATA_BLOB(len(data), ctypes.cast(buf, ctypes.POINTER(ctypes.c_char)))
     out_blob = DATA_BLOB()
-    success = crypt32.CryptUnprotectData(
+    success = _crypt32.CryptUnprotectData(
         ctypes.byref(in_blob),
         None, None, None, None, 0,
         ctypes.byref(out_blob)
     )
     if not success:
         raise ctypes.WinError()
-    decrypted_bytes = ctypes.string_at(out_blob.pbData, out_blob.cbData)
-    ctypes.windll.kernel32.LocalFree(out_blob.pbData)
-    return decrypted_bytes
+    try:
+        return ctypes.string_at(out_blob.pbData, out_blob.cbData)
+    finally:
+        if out_blob.pbData:
+            _kernel32.LocalFree(ctypes.cast(out_blob.pbData, ctypes.c_void_p))
 
 original_match = supabase._sync.client.re.match
 

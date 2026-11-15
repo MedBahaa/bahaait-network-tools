@@ -155,6 +155,12 @@ class TestConfig:
         cfg_reloaded = ConfigManager()
         assert cfg_reloaded.get("email_smtp_password") == "MySuperSecretPass123!"
 
+        # 16-character plaintext password (valid base64 length) must not crash or corrupt via DPAPI
+        assert cfg_reloaded.decrypt_value("rgsrodggtfbpshaj") == "rgsrodggtfbpshaj"
+        # Encrypting an already encrypted value must be idempotent
+        enc_once = cfg_reloaded.encrypt_value("MySuperSecretPass123!")
+        assert cfg_reloaded.encrypt_value(enc_once) == enc_once
+
     def test_corrupted_json_fallback(self, tmp_path, monkeypatch):
         monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
         base_dir = tmp_path / "BahaaIT"
@@ -273,22 +279,23 @@ class TestBugFixes:
         assert results_down == [(1, "down", 0.0)]
 
     def test_bug7_net_config_dns_parsing_french_and_english(self):
-        fr_netsh_output = """
-Configuration pour l'interface "Wi-Fi"
-    DHCP activé:                           Oui
-    Adresse IP:                            192.168.1.45
-    Préfixe de sous-réseau:                192.168.1.0/24 (masque 255.255.255.0)
-    Passerelle par défaut:                 192.168.1.1
-    Métrique de la passerelle:             0
-    Métrique de l'interface:               35
-    Serveurs DNS configurés via DHCP:      8.8.8.8
-                                           8.8.4.4
-    Enregistrer avec lequel suffixe:       Principal uniquement
-"""
+        # Exact French Windows 11 netsh format with non-breaking spaces (\u00a0) before colons
+        fr_netsh_output = (
+            "Configuration pour l’interface «\u00a0Wi-Fi\u00a0»\n"
+            "    DHCP activé:                          Oui\n"
+            "    Adresse IP\u00a0:                           192.168.82.11\n"
+            "    Préfixe de sous-réseau\u00a0:               192.168.0.0/16 (masque 255.255.0.0)\n"
+            "    Passerelle par défaut\u00a0:               192.168.0.1\n"
+            "    Métrique de passerelle\u00a0:              0\n"
+            "    Métrique de l’interface\u00a0:             30\n"
+            "    Serveurs DNS configurés via DHCP\u00a0:     8.8.8.8\n"
+            "                                           8.8.4.4\n"
+            "    Enregistrer avec le suffixe :           Principale uniquement\n"
+        )
         with patch("subprocess.run", return_value=MagicMock(stdout=fr_netsh_output)):
             cfg = NetworkConfig.get_interface_config("Wi-Fi")
-            assert cfg["gateway"] == "192.168.1.1"
-            # Must be 8.8.8.8 and NOT 192.168.1.0 from Subnet Prefix!
+            assert cfg["gateway"] == "192.168.0.1"
+            # Must be 8.8.8.8 and NOT 192.168.0.0 from Subnet Prefix!
             assert cfg["dns1"] == "8.8.8.8"
             assert cfg["dns2"] == "8.8.4.4"
 

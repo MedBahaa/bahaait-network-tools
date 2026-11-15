@@ -448,14 +448,21 @@ class MainWindow(QMainWindow):
         widget = self.content_area.widget(index)
         self.content_area.setCurrentIndex(index)
         
+        if hasattr(self, "animation") and self.animation is not None:
+            try:
+                self.animation.stop()
+            except Exception:
+                pass
+        
         effect = QGraphicsOpacityEffect(widget)
         widget.setGraphicsEffect(effect)
         
-        self.animation = QPropertyAnimation(effect, b"opacity")
+        self.animation = QPropertyAnimation(effect, b"opacity", self)
         self.animation.setDuration(250)
         self.animation.setStartValue(0.0)
         self.animation.setEndValue(1.0)
         self.animation.setEasingCurve(QEasingCurve.InOutQuad)
+        self.animation.finished.connect(lambda w=widget: w.setGraphicsEffect(None))
         self.animation.start()
 
     def setup_views(self):

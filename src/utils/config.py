@@ -43,6 +43,9 @@ class ConfigManager:
     def encrypt_value(self, value: str) -> str:
         if not value:
             return ""
+        # Avoid double-encrypting an already DPAPI-encrypted Base64 string
+        if value.startswith("AQAAANCMnd8BFdERjHoAwE/Cl+sB"):
+            return value
         try:
             from utils.auth import encrypt_data
             encrypted_bytes = encrypt_data(value.encode('utf-8'))
@@ -54,6 +57,9 @@ class ConfigManager:
     def decrypt_value(self, value: str) -> str:
         if not value:
             return ""
+        # Only attempt DPAPI decryption if the value has the Windows DPAPI Base64 prefix
+        if os.name == 'nt' and not value.startswith("AQAAANCMnd8BFdERjHoAwE/Cl+sB"):
+            return value
         try:
             from utils.auth import decrypt_data
             decoded_bytes = base64.b64decode(value.encode('utf-8'), validate=True)

@@ -54,6 +54,8 @@ def main():
     logger.info("BahaaIT Network Tools Starting...")
 
     # 3. Create App
+    from PySide6.QtCore import Qt
+    QApplication.setAttribute(Qt.AA_DontUseNativeDialogs, True)
     app = QApplication(sys.argv)
     app.setApplicationName("BahaaIT Network Tools")
     

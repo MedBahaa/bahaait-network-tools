@@ -41,23 +41,33 @@ class NetworkConfig:
         # Get Gateway and DNS via netsh
         try:
             res = subprocess.run(f'netsh interface ipv4 show config name="{interface_name}"', 
-                                 shell=True, capture_output=True, text=True, encoding='cp850')
+                                 shell=True, capture_output=True, text=True, encoding='cp850', errors='replace')
             output = res.stdout
             
-            # Gateway (supports English and French CP850/UTF-8 encodings)
-            gw_match = re.search(r"(?:Default Gateway|Passerelle par d.faut)\s*:\s*([\d\.]+)", output, re.IGNORECASE)
-            if gw_match:
-                config["gateway"] = gw_match.group(1)
-            
-            # Parse DNS section specifically (handles both Static and DHCP DNS in FR/EN)
+            # Parse Gateway and DNS sections line-by-line (handles FR/EN encodings and non-breaking spaces)
             dns_list = []
             in_dns_block = False
+            in_gw_block = False
             for line in output.splitlines():
-                if "dns" in line.lower() and ":" in line:
+                line_low = line.lower()
+                if ("default gateway" in line_low or "passerelle" in line_low) and "metric" not in line_low and "trique" not in line_low:
+                    in_gw_block = True
+                    in_dns_block = False
+                    ip_match = re.search(r"(\d{1,3}(?:\.\d{1,3}){3})", line)
+                    if ip_match and not config["gateway"]:
+                        config["gateway"] = ip_match.group(1)
+                elif "dns" in line_low and ":" in line:
                     in_dns_block = True
+                    in_gw_block = False
                     ip_match = re.search(r"(\d{1,3}(?:\.\d{1,3}){3})", line)
                     if ip_match:
                         dns_list.append(ip_match.group(1))
+                elif in_gw_block and ":" not in line:
+                    ip_match = re.search(r"(\d{1,3}(?:\.\d{1,3}){3})", line)
+                    if ip_match and not config["gateway"]:
+                        config["gateway"] = ip_match.group(1)
+                    else:
+                        in_gw_block = False
                 elif in_dns_block:
                     # Indented continuation line for secondary DNS (no colon)
                     if ":" not in line:
@@ -68,6 +78,9 @@ class NetworkConfig:
                             in_dns_block = False
                     else:
                         in_dns_block = False
+                else:
+                    in_gw_block = False
+                    in_dns_block = False
 
             if len(dns_list) > 0:
                 config["dns1"] = dns_list[0]

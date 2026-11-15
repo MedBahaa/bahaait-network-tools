@@ -909,11 +909,21 @@ class SettingsView(QWidget):
 
     def export_backup_data(self):
         from datetime import datetime
+        default_dir = os.path.join(os.path.expanduser("~"), "Desktop")
+        if not os.path.isdir(default_dir):
+            default_dir = os.path.expanduser("~")
+        default_path = os.path.join(default_dir, "bahaait_backup.json")
+
+        # Ensure any active graphics effect on self is cleared before opening modal dialog
+        if self.graphicsEffect() is not None:
+            self.setGraphicsEffect(None)
+
         file_path, _filter = QFileDialog.getSaveFileName(
-            self,
+            self.window(),
             _("settings_backup_export_title", "Export Backup Data"),
-            "bahaait_backup.json",
-            "JSON Files (*.json)"
+            default_path,
+            "JSON Files (*.json)",
+            options=QFileDialog.DontUseNativeDialog
         )
         if not file_path:
             return
@@ -938,24 +948,32 @@ class SettingsView(QWidget):
                 json.dump(backup_dict, f, indent=4)
                 
             QMessageBox.information(
-                self,
+                self.window(),
                 _("msg_success", "Success"),
                 _("settings_backup_export_success", "Backup exported successfully to {}").format(os.path.basename(file_path))
             )
         except Exception as e:
             self.logger.error(f"Failed to export backup: {e}")
             QMessageBox.critical(
-                self,
+                self.window(),
                 _("msg_error", "Error"),
                 f"Failed to export backup: {e}"
             )
 
     def import_backup_data(self):
+        default_dir = os.path.join(os.path.expanduser("~"), "Desktop")
+        if not os.path.isdir(default_dir):
+            default_dir = os.path.expanduser("~")
+
+        if self.graphicsEffect() is not None:
+            self.setGraphicsEffect(None)
+
         file_path, _filter = QFileDialog.getOpenFileName(
-            self,
+            self.window(),
             _("settings_backup_import_title", "Import Backup Data"),
-            "",
-            "JSON Files (*.json)"
+            default_dir,
+            "JSON Files (*.json)",
+            options=QFileDialog.DontUseNativeDialog
         )
         if not file_path:
             return
