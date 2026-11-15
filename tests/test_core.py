@@ -384,3 +384,131 @@ Configuration for interface "Ethernet"
         assert stats["down"] == 1
         assert stats["uptime_percent"] == 66.67
         assert stats["avg_latency"] == 15.0
+
+
+class TestWifiAndDiagnostic:
+    def test_wifi_parser_french_and_english(self):
+        fr_wlan_output = (
+            "Nom de l’interface : Wi-Fi\n"
+            "Il existe actuellement 2 réseaux visibles.\n\n"
+            "SSID 1\u00a0: Ruckus-HQ\n"
+            "    Type de réseau          : Infrastructure\n"
+            "    Authentification\u00a0:        WPA2 - Personnel\n"
+            "    Chiffrement\u00a0:             CCMP\n"
+            "    BSSID 1                 : a4:2b:8c:11:22:33\n"
+            "         Signal             : 55%\n"
+            "         Type de radio      : 802.11n\n"
+            "         Canal              : 6\n"
+            "    BSSID 2                 : a4:2b:8c:11:22:34\n"
+            "         Signal             : 88%\n"
+            "         Type de radio      : 802.11ax\n"
+            "         Bande              : 5 GHz\n"
+            "         Canal              : 36\n\n"
+            "SSID 2 : \n"
+            "    Network type            : Infrastructure\n"
+            "    Authentication          : Open\n"
+            "    Encryption              : None\n"
+            "    BSSID 1                 : 11:22:33:44:55:66\n"
+            "         Signal             : 25%\n"
+            "         Radio type         : 802.11ac\n"
+            "         Channel            : 48\n"
+        )
+        parsed = Scanner.parse_wifi_output(fr_wlan_output, hidden_label="<Hidden>")
+        assert len(parsed) == 3
+        # Sorted descending by signal_pct: 88%, 55%, 25%
+        assert parsed[0]["ssid"] == "Ruckus-HQ"
+        assert parsed[0]["bssid"] == "A4:2B:8C:11:22:34"
+        assert parsed[0]["signal"] == "88%"
+        assert parsed[0]["channel"] == "Ch 36 (5 GHz)"
+        assert parsed[0]["status"] == "UP"
+        assert "802.11ax" in parsed[0]["security"]
+
+        assert parsed[1]["bssid"] == "A4:2B:8C:11:22:33"
+        assert parsed[1]["channel"] == "Ch 6 (2.4 GHz)"
+        assert parsed[1]["status"] == "WARN"
+
+        assert parsed[2]["ssid"] == "<Hidden>"
+        assert parsed[2]["channel"] == "Ch 48 (5 GHz)"
+        assert parsed[2]["status"] == "LOW"
+
+        # Test Windows 11 French output with "Charge BSS" / "Utilisation du canal : 0 (0 %)"
+        win11_fr_output = (
+            "SSID 1\u00a0: WIFI_SERVICE\n"
+            "    Type de réseau\u00a0         : Infrastructure\n"
+            "    Authentification\u00a0       : WPA2\u00a0-\u00a0Personnel\n"
+            "    Chiffrement\u00a0            : CCMP \n"
+            "    BSSID 1                 : f4:fc:49:04:ac:b9\n"
+            "         Signal             : 92%  \n"
+            "         Type de radio         : 802.11ax\n"
+            "         Bande               : 5\u00a0GHz\n"
+            "         Canal            : 64 \n"
+            "         Charge BSS\u00a0:\n"
+            "             Stations connectées\u00a0:         12\n"
+            "             Utilisation du canal\u00a0:        0 (0 %)\n"
+        )
+        parsed_w11 = Scanner.parse_wifi_output(win11_fr_output)
+        assert len(parsed_w11) == 1
+        assert parsed_w11[0]["ssid"] == "WIFI_SERVICE"
+        # Must keep Channel 64 and NOT overwrite with 0 from "Utilisation du canal"!
+        assert parsed_w11[0]["channel"] == "Ch 64 (5 GHz)"
+        assert parsed_w11[0]["signal"] == "92%"
+
+    def test_scan_wifi_with_filter(self):
+        sample_out = (
+            "SSID 1 : Ruckus-Corp\n"
+            "    Authentification : WPA2-Personal\n"
+            "    Chiffrement : CCMP\n"
+            "    BSSID 1 : aa:bb:cc:dd:ee:01\n"
+            "         Signal : 80%\n"
+            "         Canal : 11\n"
+            "SSID 2 : Guest-Net\n"
+            "    Authentification : Open\n"
+            "    Chiffrement : Aucun\n"
+            "    BSSID 1 : aa:bb:cc:dd:ee:02\n"
+            "         Signal : 60%\n"
+            "         Canal : 1\n"
+        ).encode("cp850")
+
+        scanner = Scanner()
+        emitted = []
+        scanner.result_signal.connect(lambda d: emitted.append(d))
+
+        with patch("subprocess.run", return_value=MagicMock(returncode=0, stdout=sample_out)):
+            res = scanner.scan_wifi(filter_text="ruckus")
+
+        assert len(res) == 1
+        assert len(emitted) == 1
+        assert res[0]["ssid"] == "Ruckus-Corp"
+
+    def test_smart_diagnostic_all_ok_and_dns_fail(self):
+        scanner = Scanner()
+        fake_local_info = {
+            "interface": "Wi-Fi",
+            "local_ip": "192.168.1.50",
+            "network_cidr": "192.168.1.0/24"
+        }
+
+        # Case 1: All 4 checks succeed -> Step 5 is OK ("100% OK")
+        with patch("core.tools.NetworkTools.get_local_info", return_value=fake_local_info), \
+             patch.object(scanner, "_detect_default_gateway", return_value="192.168.1.1"), \
+             patch.object(scanner, "_ping_host", return_value=(True, 8.0)), \
+             patch("socket.gethostbyname", return_value="142.250.180.14"):
+            steps_ok = scanner.run_smart_diagnostic("google.com")
+
+        assert len(steps_ok) == 5
+        assert all(s["status"] == "OK" for s in steps_ok)
+        assert steps_ok[4]["latency"] == "100% OK"
+
+        # Case 2: Adapter, Gateway, and WAN IP succeed, but DNS fails -> Step 5 is WARN
+        with patch("core.tools.NetworkTools.get_local_info", return_value=fake_local_info), \
+             patch.object(scanner, "_detect_default_gateway", return_value="192.168.1.1"), \
+             patch.object(scanner, "_ping_host", return_value=(True, 12.0)), \
+             patch("socket.gethostbyname", side_effect=OSError("DNS server failed")):
+            steps_dns_fail = scanner.run_smart_diagnostic("intranet.local")
+
+        assert len(steps_dns_fail) == 5
+        assert steps_dns_fail[0]["status"] == "OK"
+        assert steps_dns_fail[1]["status"] == "OK"
+        assert steps_dns_fail[2]["status"] == "OK"
+        assert steps_dns_fail[3]["status"] == "FAIL"
+        assert steps_dns_fail[4]["status"] == "WARN"

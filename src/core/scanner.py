@@ -392,3 +392,433 @@ class Scanner(QObject):
             self.result_signal.emit({"hop": "0", "ip": str(e), "p1": "*", "p2": "*", "p3": "*", "status": "ERROR"})
         finally:
             self.finished_signal.emit()
+
+    @staticmethod
+    def parse_wifi_output(output: str, hidden_label: str = "<Hidden Network>") -> List[Dict[str, Any]]:
+        """Parse French or English 'netsh wlan show networks mode=bssid' output."""
+        import re
+        import unicodedata
+
+        def _clean_text(s: str) -> str:
+            # Normalize non-breaking spaces and CP850/UTF-8 artifacts
+            s = s.replace("\u00a0", " ").replace("\xff", " ").replace("┬á", " ")
+            return re.sub(r"\s+", " ", s).strip()
+
+        def _norm_key(s: str) -> str:
+            s = _clean_text(s)
+            return "".join(
+                c for c in unicodedata.normalize("NFD", s)
+                if unicodedata.category(c) != "Mn"
+            ).lower().strip()
+
+        networks = []
+        current_net = None
+        current_bssid = None
+
+        for raw_line in output.splitlines():
+            line = _clean_text(raw_line)
+            if not line:
+                continue
+
+            # Match SSID header: "SSID 1 : MyNetwork" (allow any spacing/chars before colon, avoid BSSID)
+            ssid_match = re.match(r'^SSID\s+\d+[^:]*:\s*(.*)$', line, re.IGNORECASE)
+            if ssid_match:
+                if current_net is not None:
+                    networks.append(current_net)
+                ssid_val = ssid_match.group(1).strip()
+                current_net = {
+                    "ssid": ssid_val if ssid_val else hidden_label,
+                    "auth": "",
+                    "encryption": "",
+                    "bssids": []
+                }
+                current_bssid = None
+                continue
+
+            if current_net is None:
+                continue
+
+            # Match BSSID header: "BSSID 1 : a4:2b:8c:11:22:33"
+            bssid_match = re.match(r'^BSSID\s+\d+[^:]*:\s*([0-9a-fA-F:-]{17})', line, re.IGNORECASE)
+            if bssid_match:
+                current_bssid = {
+                    "bssid": bssid_match.group(1).replace("-", ":").upper(),
+                    "signal_pct": 0,
+                    "radio": "",
+                    "band": "",
+                    "channel": ""
+                }
+                current_net["bssids"].append(current_bssid)
+                continue
+
+            if ":" not in line:
+                continue
+
+            key_raw, val_raw = line.split(":", 1)
+            key = _norm_key(key_raw)
+            val = _clean_text(val_raw)
+
+            if current_bssid is None:
+                if "authentification" in key or "authentication" in key:
+                    current_net["auth"] = val
+                elif "chiffrement" in key or "encryption" in key:
+                    current_net["encryption"] = val
+            else:
+                if key == "signal" or key.startswith("signal"):
+                    m_sig = re.search(r'(\d+)\s*%', val)
+                    if m_sig:
+                        current_bssid["signal_pct"] = int(m_sig.group(1))
+                elif "radio" in key:
+                    current_bssid["radio"] = val
+                elif key in ("bande", "band") or key.startswith("band"):
+                    current_bssid["band"] = val.replace(",", ".")
+                elif key in ("canal", "channel"):
+                    m_ch = re.search(r'(\d+)', val)
+                    current_bssid["channel"] = m_ch.group(1) if m_ch else val
+
+        if current_net is not None:
+            networks.append(current_net)
+
+        results: List[Dict[str, Any]] = []
+        for net in networks:
+            ssid = net["ssid"]
+            auth = net["auth"] or "Open"
+            enc = net["encryption"]
+            sec_base = f"{auth} / {enc}" if enc and enc.lower() not in ("aucun", "none", "") else auth
+
+            bssids = net["bssids"]
+            if not bssids:
+                results.append({
+                    "ssid": ssid,
+                    "bssid": "N/A",
+                    "signal": "0%",
+                    "signal_pct": 0,
+                    "channel": "N/A",
+                    "security": sec_base,
+                    "status": "LOW"
+                })
+                continue
+
+            for b in bssids:
+                sig_pct = b["signal_pct"]
+                ch_str = b["channel"]
+                band_str = b["band"]
+
+                if not band_str and ch_str.isdigit():
+                    ch_num = int(ch_str)
+                    if 1 <= ch_num <= 14:
+                        band_str = "2.4 GHz"
+                    elif 32 <= ch_num <= 177:
+                        band_str = "5 GHz"
+                    else:
+                        band_str = "6 GHz"
+
+                if ch_str and band_str:
+                    channel_display = f"Ch {ch_str} ({band_str})"
+                elif ch_str:
+                    channel_display = f"Ch {ch_str}"
+                elif band_str:
+                    channel_display = band_str
+                else:
+                    channel_display = "N/A"
+
+                radio_str = b["radio"]
+                security_display = f"{sec_base} ({radio_str})" if radio_str else sec_base
+                status = "UP" if sig_pct >= 70 else ("WARN" if sig_pct >= 40 else "LOW")
+
+                results.append({
+                    "ssid": ssid,
+                    "bssid": b["bssid"],
+                    "signal": f"{sig_pct}%",
+                    "signal_pct": sig_pct,
+                    "channel": channel_display,
+                    "security": security_display,
+                    "status": status
+                })
+
+        results.sort(key=lambda item: item.get("signal_pct", 0), reverse=True)
+        return results
+
+    def scan_wifi(self, filter_text: str = "") -> List[Dict[str, Any]]:
+        """Scan surrounding Wi-Fi networks and BSSIDs using netsh wlan."""
+        import subprocess
+        from utils.i18n import _
+        results: List[Dict[str, Any]] = []
+        try:
+            self.progress_signal.emit(20)
+            proc = subprocess.run(
+                ["netsh", "wlan", "show", "networks", "mode=bssid"],
+                capture_output=True,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                timeout=10
+            )
+            raw_bytes = proc.stdout or b""
+            try:
+                output = raw_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                output = raw_bytes.decode("cp850", errors="replace")
+
+            self.progress_signal.emit(60)
+            parsed = self.parse_wifi_output(output, hidden_label=_("wifi_hidden_ssid"))
+
+            flt = (filter_text or "").strip().lower()
+            if flt:
+                parsed = [
+                    item for item in parsed
+                    if flt in item["ssid"].lower()
+                    or flt in item["bssid"].lower()
+                    or flt in item["channel"].lower()
+                    or flt in item["security"].lower()
+                ]
+
+            if not parsed:
+                info_msg = _("wifi_adapter_unavailable") if proc.returncode != 0 else _("wifi_no_networks")
+                fallback_row = {
+                    "ssid": _("wifi_no_networks"),
+                    "bssid": "-",
+                    "signal": "0%",
+                    "signal_pct": 0,
+                    "channel": "-",
+                    "security": info_msg,
+                    "status": "WARN"
+                }
+                results.append(fallback_row)
+                self.result_signal.emit(fallback_row)
+            else:
+                total = len(parsed)
+                for idx, item in enumerate(parsed):
+                    if not self.running:
+                        break
+                    results.append(item)
+                    self.result_signal.emit(item)
+                    self.progress_signal.emit(60 + int(((idx + 1) / total) * 40))
+
+        except Exception as e:
+            err_row = {
+                "ssid": _("wifi_no_networks"),
+                "bssid": "-",
+                "signal": "0%",
+                "signal_pct": 0,
+                "channel": "-",
+                "security": str(e),
+                "status": "WARN"
+            }
+            results.append(err_row)
+            self.result_signal.emit(err_row)
+        finally:
+            self.finished_signal.emit()
+        return results
+
+    def _ping_host(self, host: str, timeout: float = 1.5) -> Tuple[bool, float]:
+        """Ping a host via icmplib with subprocess fallback if raw sockets are restricted."""
+        import subprocess
+        import re
+        try:
+            res = icmp_ping(host, count=1, timeout=timeout)
+            if res.is_alive:
+                return True, float(res.avg_rtt)
+        except Exception:
+            pass
+
+        try:
+            out = subprocess.check_output(
+                ["ping", "-n", "1", "-w", str(int(timeout * 1000)), host],
+                stderr=subprocess.STDOUT,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                timeout=timeout + 2.0
+            ).decode("cp850", errors="replace")
+            if "ttl=" in out.lower():
+                m_time = re.search(r'(?:temps|time)\s*[=<]\s*(\d+)\s*ms', out, re.IGNORECASE)
+                rtt = float(m_time.group(1)) if m_time else 1.0
+                return True, rtt
+        except Exception:
+            pass
+        return False, 0.0
+
+    def _detect_default_gateway(self, interface_name: str, local_ip: str) -> str:
+        """Detect default gateway IP using NetworkConfig or ipconfig fallback."""
+        import subprocess
+        import re
+        try:
+            from core.net_config import NetworkConfig
+            if interface_name and interface_name != "Unknown":
+                cfg = NetworkConfig.get_interface_config(interface_name)
+                gw = cfg.get("gateway", "")
+                if gw and re.match(r'^\d+\.\d+\.\d+\.\d+$', gw):
+                    return gw
+        except Exception:
+            pass
+
+        try:
+            out = subprocess.check_output(
+                "ipconfig",
+                shell=True,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                timeout=5
+            ).decode("cp850", errors="replace")
+            for line in out.splitlines():
+                low = line.lower()
+                if "passerelle" in low or "gateway" in low:
+                    m_ip = re.search(r'(\d+\.\d+\.\d+\.\d+)', line)
+                    if m_ip and m_ip.group(1) != "0.0.0.0":
+                        return m_ip.group(1)
+        except Exception:
+            pass
+
+        if local_ip and local_ip.count(".") == 3 and not local_ip.startswith("127."):
+            return f"{local_ip.rsplit('.', 1)[0]}.1"
+        return ""
+
+    def run_smart_diagnostic(self, target_domain: str = "") -> List[Dict[str, Any]]:
+        """Execute automated 5-step network troubleshooting chain."""
+        import time
+        from urllib.parse import urlparse
+        from core.tools import NetworkTools
+        from utils.i18n import _
+
+        results: List[Dict[str, Any]] = []
+        raw_domain = (target_domain or "").strip()
+        if "://" in raw_domain:
+            raw_domain = urlparse(raw_domain).hostname or "google.com"
+        else:
+            raw_domain = raw_domain.split("/")[0].strip()
+        domain = raw_domain if raw_domain else "google.com"
+
+        try:
+            # Step 1: Local Network Adapter
+            info = NetworkTools.get_local_info()
+            local_ip = info.get("local_ip", "127.0.0.1")
+            iface = info.get("interface", "Unknown")
+            cidr = info.get("network_cidr", local_ip)
+            adapter_ok = bool(
+                local_ip
+                and local_ip != "127.0.0.1"
+                and not local_ip.startswith("169.254.")
+            )
+            step1 = {
+                "step": _("diag_step_adapter"),
+                "detail": f"{iface} ({local_ip})",
+                "status": "OK" if adapter_ok else "FAIL",
+                "latency": cidr if adapter_ok else _("diag_adapter_disconnected")
+            }
+            results.append(step1)
+            self.result_signal.emit(step1)
+            self.progress_signal.emit(20)
+            if not self.running:
+                return results
+
+            # Step 2: Local Default Gateway
+            gw_ip = self._detect_default_gateway(iface, local_ip) if adapter_ok else ""
+            gw_ok = False
+            gw_rtt = 0.0
+            if adapter_ok and gw_ip:
+                gw_ok, gw_rtt = self._ping_host(gw_ip, timeout=1.5)
+                step2 = {
+                    "step": _("diag_step_gateway"),
+                    "detail": gw_ip,
+                    "status": "OK" if gw_ok else "FAIL",
+                    "latency": f"{gw_rtt:.0f} ms" if gw_ok else "TIMEOUT"
+                }
+            else:
+                step2 = {
+                    "step": _("diag_step_gateway"),
+                    "detail": gw_ip or "N/A",
+                    "status": "FAIL",
+                    "latency": _("diag_no_gateway")
+                }
+            results.append(step2)
+            self.result_signal.emit(step2)
+            self.progress_signal.emit(40)
+            if not self.running:
+                return results
+
+            # Step 3: WAN Internet Connectivity (8.8.8.8 / 1.1.1.1)
+            wan_ok = False
+            wan_rtt = 0.0
+            wan_target = "8.8.8.8"
+            if adapter_ok:
+                wan_ok, wan_rtt = self._ping_host("8.8.8.8", timeout=1.5)
+                if not wan_ok:
+                    wan_ok, wan_rtt = self._ping_host("1.1.1.1", timeout=1.5)
+                    if wan_ok:
+                        wan_target = "1.1.1.1"
+            step3 = {
+                "step": _("diag_step_internet"),
+                "detail": f"WAN ({wan_target})",
+                "status": "OK" if wan_ok else "FAIL",
+                "latency": f"{wan_rtt:.0f} ms" if wan_ok else "TIMEOUT"
+            }
+            results.append(step3)
+            self.result_signal.emit(step3)
+            self.progress_signal.emit(60)
+            if not self.running:
+                return results
+
+            # Step 4: DNS Resolution
+            dns_ok = False
+            dns_ms = 0.0
+            resolved_ip = ""
+            if adapter_ok:
+                t0 = time.perf_counter()
+                try:
+                    resolved_ip = socket.gethostbyname(domain)
+                    dns_ms = (time.perf_counter() - t0) * 1000.0
+                    dns_ok = bool(resolved_ip)
+                except Exception:
+                    dns_ok = False
+
+            step4 = {
+                "step": _("diag_step_dns"),
+                "detail": f"{domain} -> {resolved_ip}" if dns_ok else domain,
+                "status": "OK" if dns_ok else "FAIL",
+                "latency": f"{dns_ms:.0f} ms" if dns_ok else _("diag_dns_failed")
+            }
+            results.append(step4)
+            self.result_signal.emit(step4)
+            self.progress_signal.emit(80)
+            if not self.running:
+                return results
+
+            # Step 5: Global Diagnostic Verdict
+            if adapter_ok and gw_ok and wan_ok and dns_ok:
+                v_status = "OK"
+                v_detail = _("diag_verdict_all_ok")
+                v_result = "100% OK"
+            elif not adapter_ok:
+                v_status = "FAIL"
+                v_detail = _("diag_verdict_adapter_fail")
+                v_result = _("diag_action_check_cable_wifi")
+            elif not gw_ok and not wan_ok:
+                v_status = "FAIL"
+                v_detail = _("diag_verdict_gateway_fail")
+                v_result = _("diag_action_check_router_vlan")
+            elif gw_ok and not wan_ok and not dns_ok:
+                v_status = "FAIL"
+                v_detail = _("diag_verdict_wan_fail")
+                v_result = _("diag_action_check_isp_wan")
+            elif wan_ok and not dns_ok:
+                v_status = "WARN"
+                v_detail = _("diag_verdict_dns_fail")
+                v_result = _("diag_action_check_dns")
+            elif not gw_ok and (wan_ok or dns_ok):
+                v_status = "WARN"
+                v_detail = _("diag_verdict_gw_icmp_blocked")
+                v_result = _("diag_action_icmp_filtered")
+            else:
+                v_status = "WARN"
+                v_detail = _("diag_verdict_partial")
+                v_result = "PARTIAL"
+
+            step5 = {
+                "step": _("diag_step_verdict"),
+                "detail": v_detail,
+                "status": v_status,
+                "latency": v_result
+            }
+            results.append(step5)
+            self.result_signal.emit(step5)
+            self.progress_signal.emit(100)
+
+        finally:
+            self.finished_signal.emit()
+        return results
