@@ -718,6 +718,13 @@ class TranslationManager:
                 "upd_download_error_info": "Reason: {}\n\nWould you like to open the download page in your browser?",
                 "upd_btn_yes": "Yes",
                 "upd_btn_no": "No",
+                "upd_badge_new": "NEW UPDATE AVAILABLE",
+                "upd_lbl_current": "Current",
+                "upd_lbl_latest": "New",
+                "upd_notes_header": "What's New — Release Notes",
+                "upd_btn_github": "View on GitHub",
+                "upd_btn_download_install": "Download && Install",
+                "upd_footer_hint": "The installer will download automatically and launch safely.",
 
                 # Monitor View (additional)
                 "mon_export_empty": "Log is empty.",
@@ -1897,6 +1904,13 @@ class TranslationManager:
                 "upd_download_error_info": "Raison : {}\n\nVoulez-vous ouvrir la page de téléchargement dans votre navigateur ?",
                 "upd_btn_yes": "Oui",
                 "upd_btn_no": "Non",
+                "upd_badge_new": "NOUVELLE MISE À JOUR",
+                "upd_lbl_current": "Actuelle",
+                "upd_lbl_latest": "Nouvelle",
+                "upd_notes_header": "Nouveautés — Notes de version",
+                "upd_btn_github": "Voir sur GitHub",
+                "upd_btn_download_install": "Télécharger et installer",
+                "upd_footer_hint": "L'installateur sera téléchargé et lancé automatiquement.",
 
                 # Monitor View (additional)
                 "mon_export_empty": "Le journal est vide.",

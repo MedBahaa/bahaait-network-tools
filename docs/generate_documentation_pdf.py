@@ -999,8 +999,10 @@ def build_chapter_2(meta: Dict[str, object], styles: Dict[str, ParagraphStyle]) 
         p(
             f"Le module {code_tag('src/utils/updater.py')} compare periodiquement {code_tag('CURRENT_VERSION')} "
             f"(actuellement <b>{esc(str(meta['version']))}</b>) avec la derniere release publiee sur GitHub "
-            f"({code_tag('MedBahaa/bahaait-network-tools')}). Lorsqu'une nouvelle version est disponible, l'utilisateur "
-            f"visualise les notes de version, telecharge l'installateur {code_tag('.exe')} avec suivi de progression et declenche la mise a jour.",
+            f"({code_tag('MedBahaa/bahaait-network-tools')}). Lorsqu'une nouvelle version est disponible, la fenetre "
+            f"<b>UpdateAvailableDialog</b> (dimensions bornees 660x560 px adaptatives) affiche les notes de version "
+            f"formatees depuis le Markdown dans un panneau defilant ({code_tag('QTextBrowser')}), propose le lien GitHub "
+            f"et telecharge l'installateur {code_tag('.exe')} avec suivi de progression.",
             styles["Body"],
         )
     )
@@ -1375,6 +1377,7 @@ def build_chapter_8(meta: Dict[str, object], styles: Dict[str, ParagraphStyle]) 
         [code_tag("test_v360_vlan_backup_templates.py"), "VLAN SNMP/CLI Cisco/Ruckus/FortiGate, incoherences, backups DPAPI+tamper SHA-256, Diff visuel, Restore & Modeles"],
         [code_tag("test_v360_access_audit_security.py"), "Tiers CLI READ_ONLY/MODIFYING/DESTRUCTIVE, blocage non confirme, known_hosts strict (zero AutoAddPolicy), UI Access/Sites/Audit"],
         [code_tag("test_v360_ui_benchmarks.py"), "Benchmarks echelle (1 000 equipements, 250 noeuds, 25 sites, 50 backups DPAPI), parite 1:1 FR/EN & wiring 19 ecrans"],
+        [code_tag("test_updater_dialog.py"), "Rendu Markdown->HTML et fenetre OTA UpdateAvailableDialog a dimensions bornees et defilement vertical"],
         [code_tag("test_documentation_pdf.py"), "Verification automatique de generation PDF, validite structurelle, pagination, contenu v3.6.0 et version active"],
     ]
     story.append(styled_table(["Fichier de test", "Perimetre verifie"], test_rows, [165, CONTENT_WIDTH - 165], styles))
@@ -1439,7 +1442,7 @@ def build_chapter_9(meta: Dict[str, object], styles: Dict[str, ParagraphStyle]) 
             "• <b>Inventaire Avance (11 categories)</b> : synchro SNMP/Hotes/Sites, cycle de vie & garanties, doublons IP/MAC, CSV & PDF Corporate.<br/>"
             "• <b>Gestion des VLANs</b> : parseurs Cisco/Ruckus/FortiGate, matrice multi-switchs, incoherences et planificateur CLI confirme.<br/>"
             "• <b>Sauvegardes DPAPI+SHA-256, Diff Visuel, 8 Modeles & Restauration</b> : stockage chiffre BHITENC1:+CHK, masquage secrets et PRE_RESTORE obligatoire.<br/>"
-            f"• <b>Centre d'Acces (known_hosts strict), Multi-Sites & Audit Immuable</b> : triggers anti-UPDATE/DELETE, <b>19 modules</b>, <b>{meta['table_count']} tables SQLite</b> et <b>{meta['fr_keys']} cles FR/EN</b>.",
+            f"• <b>Centre d'Acces (known_hosts strict), Multi-Sites & Audit Immuable</b> : triggers anti-UPDATE/DELETE, <b>19 modules</b>, <b>{meta['table_count']} tables SQLite</b>, <b>{meta['fr_keys']} cles FR/EN</b> et nouvelle fenetre OTA scrollable <b>UpdateAvailableDialog</b> avec rendu Markdown.",
         ],
         [
             "<b>v3.5.0</b>",
