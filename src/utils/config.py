@@ -15,6 +15,7 @@ class ConfigManager:
         "alarm_sound": "",
         "alarm_enabled": True,
         "minimize_to_tray": False,
+        "disable_ssl": True,
         "language": "fr",
         "monitored_hosts": ["8.8.8.8", "1.1.1.1", "google.com"],
         "sites": [
@@ -30,7 +31,23 @@ class ConfigManager:
         "email_smtp_user": "",
         "email_smtp_password": "",
         "email_sender": "",
-        "email_recipient": get_obfuscated_credentials()[0]
+        "email_recipient": get_obfuscated_credentials()[0],
+        "alarm_duration_sec": 0,
+        "wan_monitor_enabled": False,
+        "wan_check_interval_sec": 15,
+        "retention_raw_days": 7,
+        "retention_aggregated_days": 90,
+        "retention_incidents_days": 365,
+        "retention_alerts_days": 365,
+        "syslog_enabled": False,
+        "syslog_port": 514,
+        "syslog_bind_address": "0.0.0.0",
+        "syslog_max_pps": 2000,
+        "syslog_max_per_ip_pps": 500,
+        "retention_snmp_raw_days": 7,
+        "retention_snmp_aggregated_days": 90,
+        "retention_syslog_days": 30,
+        "retention_anomalies_days": 365,
     }
 
     def __init__(self):

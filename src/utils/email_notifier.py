@@ -50,6 +50,126 @@ class EmailNotifier:
         )
         thread.start()
 
+    @staticmethod
+    def _parse_recipients(recipient_str: str):
+        if not recipient_str:
+            return []
+        normalized = str(recipient_str).replace(";", ",")
+        return [r.strip() for r in normalized.split(",") if r.strip()]
+
+    def _resolve_smtp_settings(self):
+        use_custom = self.config_manager.get("email_use_custom_smtp", False)
+        if use_custom:
+            smtp_host = self.config_manager.get("email_smtp_host", "smtp.gmail.com")
+            try:
+                smtp_port = int(self.config_manager.get("email_smtp_port", 465) or 465)
+            except (TypeError, ValueError):
+                smtp_port = 465
+            smtp_user = self.config_manager.get("email_smtp_user", "")
+            smtp_pass = self.config_manager.get("email_smtp_password", "")
+            sender = self.config_manager.get("email_sender", "") or smtp_user
+        else:
+            from utils.config import get_obfuscated_credentials
+            smtp_host = "smtp.gmail.com"
+            smtp_port = 465
+            smtp_user, smtp_pass = get_obfuscated_credentials()
+            sender = smtp_user
+        recipients = self._parse_recipients(self.config_manager.get("email_recipient", ""))
+        return smtp_host, smtp_port, smtp_user, smtp_pass, sender, recipients
+
+    def send_alert_email(
+        self,
+        host: str,
+        label: str,
+        severity: str,
+        status: str,
+        latency: float,
+        incident_start: str,
+        diagnosis: str,
+        retries: int = 2,
+        retry_delay: float = 0.2,
+    ):
+        """Send an alert/recovery email to all configured recipients with retry and safe logging."""
+        import html
+        import time as _time
+
+        smtp_host, smtp_port, smtp_user, smtp_pass, sender, recipients = self._resolve_smtp_settings()
+        if not smtp_host or not smtp_user or not smtp_pass or not recipients:
+            msg_err = "Email notification skipped: SMTP configuration or recipients missing."
+            self._log_error(msg_err)
+            return False, msg_err
+
+        safe_label = html.escape(str(label or host))
+        safe_host = html.escape(str(host))
+        safe_sev = html.escape(str(severity))
+        safe_status = html.escape(str(status))
+        safe_diag = html.escape(str(diagnosis or ""))
+        safe_start = html.escape(str(incident_start or datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")))
+
+        subject = f"[BahaaIT {severity}] {label or host} ({host}) - {status}"
+        status_color = "#10B981" if str(status).upper() == "UP" else ("#F59E0B" if str(severity).upper() == "WARNING" else "#F43F5E")
+        status_bg = "rgba(16, 185, 129, 0.1)" if str(status).upper() == "UP" else "rgba(244, 63, 94, 0.1)"
+
+        html_content = f"""
+        <html>
+        <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0F172A; color: #F1F5F9; padding: 20px; margin: 0;">
+            <div style="max-width: 600px; margin: 0 auto; background-color: #1E293B; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05); overflow: hidden;">
+                <div style="background-color: #0F172A; padding: 22px; text-align: center; border-bottom: 2px solid #6366F1;">
+                    <h1 style="color: #FFFFFF; font-size: 22px; margin: 0;">BahaaIT Network Tools</h1>
+                    <p style="color: #94A3B8; font-size: 13px; margin: 5px 0 0 0;">Intelligent Monitoring Alert ({safe_sev})</p>
+                </div>
+                <div style="padding: 25px;">
+                    <div style="text-align: center; margin-bottom: 22px; padding: 14px; border-radius: 10px; background-color: {status_bg}; border: 1px solid {status_color};">
+                        <h2 style="color: {status_color}; font-size: 26px; margin: 4px 0;">{safe_status}</h2>
+                    </div>
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <tr><td style="padding: 10px; color: #94A3B8; font-weight: 600;">Host Name</td><td style="padding: 10px; color: #FFFFFF; font-weight: 700;">{safe_label}</td></tr>
+                        <tr><td style="padding: 10px; color: #94A3B8; font-weight: 600;">IP Address</td><td style="padding: 10px; color: #6366F1; font-family: monospace;">{safe_host}</td></tr>
+                        <tr><td style="padding: 10px; color: #94A3B8; font-weight: 600;">Severity</td><td style="padding: 10px; color: {status_color}; font-weight: 700;">{safe_sev}</td></tr>
+                        <tr><td style="padding: 10px; color: #94A3B8; font-weight: 600;">Incident Start</td><td style="padding: 10px; color: #FFFFFF;">{safe_start}</td></tr>
+                        <tr><td style="padding: 10px; color: #94A3B8; font-weight: 600;">Latency</td><td style="padding: 10px; color: #FFFFFF;">{latency:.1f} ms</td></tr>
+                        <tr><td style="padding: 10px; color: #94A3B8; font-weight: 600;">Diagnosis</td><td style="padding: 10px; color: #F1F5F9; font-family: monospace;">{safe_diag}</td></tr>
+                    </table>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
+        text_content = (
+            f"[BahaaIT {severity}] {label or host} ({host}) - {status}\n\n"
+            f"Host Name: {label or host}\n"
+            f"IP Address: {host}\n"
+            f"Severity: {severity}\n"
+            f"Incident Start: {incident_start}\n"
+            f"Latency: {latency:.1f} ms\n"
+            f"Diagnosis: {diagnosis}\n"
+        )
+
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = formataddr((str(Header("BahaaIT Network Tools", "utf-8")), sender))
+        msg["To"] = ", ".join(recipients)
+        msg.attach(MIMEText(text_content, "plain"))
+        msg.attach(MIMEText(html_content, "html"))
+
+        last_err = ""
+        attempts = 1 + max(0, int(retries))
+        for attempt in range(1, attempts + 1):
+            try:
+                self._send_raw_smtp(smtp_host, smtp_port, smtp_user, smtp_pass, sender, recipients, msg.as_string())
+                self._log_info(f"Alert email sent to {', '.join(recipients)} for {host} ({status}/{severity})")
+                return True, ""
+            except Exception as e:
+                # Sanitize error string to ensure secret/password never appears in logs
+                last_err = str(e)
+                if smtp_pass and smtp_pass in last_err:
+                    last_err = last_err.replace(smtp_pass, "***")
+                self._log_error(f"Email delivery attempt {attempt}/{attempts} failed for {host}: {last_err}")
+                if attempt < attempts and retry_delay > 0:
+                    _time.sleep(retry_delay)
+        return False, last_err
+
     def _send_status_email_sync(self, host: str, label: str, status: str, latency: int, details: str):
         use_custom = self.config_manager.get("email_use_custom_smtp", False)
         if use_custom:

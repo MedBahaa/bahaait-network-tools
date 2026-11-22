@@ -1,456 +1,914 @@
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                             QPushButton, QLineEdit, QTextEdit, QFrame, QComboBox)
-from PySide6.QtCore import Qt, QThread, Signal
-import getpass
+import getpass  # Required by tests & local default username resolution
+import os
+import re
 import socket
-import serial
+import subprocess
+import threading
+import time
+from typing import Any, Dict, List, Optional
+
 import paramiko
+from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QColor, QFont, QTextCursor
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QFormLayout,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QSpinBox,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+from core.audit_logger import AuditLogger
+from core.inventory_manager import InventoryManager
+from core.ssh_access import (
+    VENDOR_QUICK_COMMANDS,
+    DeviceAccessService,
+    SSHProfileManager,
+    classify_command_tier,
+)
+from core.vlan_manager import detect_vlan_vendor_profile
+from utils.db import DatabaseManager
 from utils.i18n import _
+from utils.infra_security import redact_sensitive_text
 
-class RemoteView(QWidget):
-    def __init__(self, logger):
-        super().__init__()
-        self.logger = logger
-        self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(30, 30, 30, 30)
-        
-        # Header
-        header = QLabel(_("remote_title", "Remote Access (PuTTY Style)"))
-        header.setObjectName("Title")
-        self.layout.addWidget(header)
-        
-        # Connection Panel
-        conn_panel = QFrame()
-        conn_panel.setObjectName("Card")
-        from PySide6.QtWidgets import QSizePolicy
-        conn_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        
-        conn_layout = QHBoxLayout(conn_panel)
-        conn_layout.setContentsMargins(20, 20, 20, 20)
-        conn_layout.setSpacing(15)
-        
-        def create_group(label_text, widget):
-            group_layout = QVBoxLayout()
-            group_layout.setSpacing(2)
-            lbl = QLabel(label_text)
-            lbl.setStyleSheet("font-weight: bold; color: #94A3B8; font-size: 11px; margin-bottom: 0px;")
-            widget.setFixedHeight(35)
-            group_layout.addWidget(lbl)
-            group_layout.addWidget(widget)
-            return group_layout
+try:
+    import serial
+    import serial.tools.list_ports
+    PYSERIAL_AVAILABLE = True
+except Exception:
+    PYSERIAL_AVAILABLE = False
 
-        # Field Initializations
-        self.protocol_selector = QComboBox()
-        self.protocol_selector.addItems(["SSH", "Telnet", "Serial"])
-        self.protocol_selector.setFixedWidth(100)
-        self.protocol_selector.currentIndexChanged.connect(self.on_protocol_changed)
-        
-        self.host_input = QLineEdit()
-        self.host_input.setPlaceholderText("192.168.1.1")
-        self.host_input.setMinimumWidth(200)
-        
-        self.port_input = QLineEdit("22")
-        self.port_input.setFixedWidth(70)
-        
+_ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
-        
-        self.serial_line = QLineEdit("COM1")
-        self.serial_line.setFixedWidth(120)
-        
-        self.speed_input = QLineEdit("9600")
-        self.speed_input.setFixedWidth(100)
 
-        # Connect Button
-        self.connect_btn = QPushButton(_("remote_connect", "Connect"))
-        self.connect_btn.setObjectName("PrimaryButton")
-        self.connect_btn.setFixedHeight(35)
-        self.connect_btn.setMinimumWidth(120)
-        self.connect_btn.setCursor(Qt.PointingHandCursor)
-        self.connect_btn.clicked.connect(self.toggle_connection)
+def _ansi_to_plain(text: str) -> str:
+    return _ANSI_ESCAPE_RE.sub("", text or "")
 
-        # Labels for serial mode (stored as attributes to toggle visibility)
-        self.l_host = QLabel(_("remote_host", "HOST / IP:"))
-        self.l_port = QLabel(_("remote_port", "PORT:"))
-        self.l_serial = QLabel(_("remote_serial_port", "SERIAL LINE:"))
-        self.l_speed = QLabel(_("remote_baud", "SPEED:"))
 
-        # Layout Assembly
-        conn_layout.addLayout(create_group(_("remote_type", "TYPE:"), self.protocol_selector))
-        
-        # IP/SSH Group
-        self.ssh_container = QWidget()
-        ssh_layout = QHBoxLayout(self.ssh_container)
-        ssh_layout.setContentsMargins(0, 0, 0, 0)
-        
-        self.group_host = create_group(_("remote_host", "HOST / IP:"), self.host_input)
-        self.group_port = create_group(_("remote_port", "PORT:"), self.port_input)
-        
-        ssh_layout.addLayout(self.group_host)
-        ssh_layout.addLayout(self.group_port)
-        
-        # Serial Group
-        self.serial_container = QWidget()
-        serial_layout = QHBoxLayout(self.serial_container)
-        serial_layout.setContentsMargins(0, 0, 0, 0)
-        self.group_serial = create_group(_("remote_serial_port", "SERIAL LINE:"), self.serial_line)
-        self.group_speed = create_group(_("remote_baud", "SPEED:"), self.speed_input)
-        serial_layout.addLayout(self.group_serial)
-        serial_layout.addLayout(self.group_speed)
-        
-        self.serial_container.setVisible(False)
-
-        conn_layout.addWidget(self.ssh_container)
-        conn_layout.addWidget(self.serial_container)
-        
-        conn_layout.addStretch()
-        
-        # Vertical alignment for button (needs a small spacer to match inputs level)
-        btn_layout = QVBoxLayout()
-        btn_layout.addStretch()
-        btn_layout.addWidget(self.connect_btn)
-        conn_layout.addLayout(btn_layout)
-        
-        self.layout.addWidget(conn_panel)
-        
-        # Terminal Output
-        self.terminal = QTextEdit()
-        self.terminal.setReadOnly(True)
-        self.terminal.setStyleSheet("""
-            QTextEdit {
-                background-color: #000000;
-                color: #ffffff;
-                font-family: 'Consolas', monospace;
-                border: 1px solid #334155;
-                border-radius: 10px;
-                padding: 10px;
-            }
-        """)
-        self.layout.addWidget(self.terminal)
-        
-        # Command Input
-        self.cmd_input = QLineEdit()
-        self.cmd_input.setPlaceholderText(_("remote_placeholder", "Type command and press Enter..."))
-        self.cmd_input.returnPressed.connect(self.send_command)
-        self.cmd_input.setEnabled(False)
-        self.cmd_input.installEventFilter(self)
-        self.layout.addWidget(self.cmd_input)
-        
-        self.command_history = []
-        self.history_index = -1
-        
-        self.worker = None
-        self.shell = None
-
-    def eventFilter(self, obj, event):
-        from PySide6.QtCore import QEvent
-        if obj == self.cmd_input and event.type() == QEvent.KeyPress:
-            if event.key() == Qt.Key_Up:
-                if self.command_history and self.history_index < len(self.command_history) - 1:
-                    self.history_index += 1
-                    self.cmd_input.setText(self.command_history[len(self.command_history) - 1 - self.history_index])
-                return True
-            elif event.key() == Qt.Key_Down:
-                if self.history_index > 0:
-                    self.history_index -= 1
-                    self.cmd_input.setText(self.command_history[len(self.command_history) - 1 - self.history_index])
-                elif self.history_index == 0:
-                    self.history_index = -1
-                    self.cmd_input.clear()
-                return True
-            
-            # Ctrl+C Shortcut (Interrupt)
-            elif event.modifiers() == Qt.ControlModifier and event.key() == Qt.Key_C:
-                self.send_control_sequence('\x03', '^C') # ETX
-                return True
-                
-            # Cisco Break Shortcut (Ctrl+Shift+6)
-            elif (event.modifiers() == (Qt.ControlModifier | Qt.ShiftModifier)) and event.key() == Qt.Key_6:
-                self.send_control_sequence('\x1e', '[BREAK]') # RS
-                return True
-                
-        return super().eventFilter(obj, event)
-    
-    def send_control_sequence(self, char, label):
-        if self.shell:
-            try:
-                if hasattr(self.shell, 'send'):
-                    self.shell.send(char.encode('utf-8'))
-                elif hasattr(self.shell, 'write'):
-                    self.shell.write(char.encode('utf-8'))
-                # Professional representation of control sequences
-                self.handle_terminal_output(f"\x1b[91m {label} \x1b[0m")
-            except:
-                pass
-
-    def on_protocol_changed(self):
-        proto = self.protocol_selector.currentText()
-        is_serial = proto == "Serial"
-        
-        # Visibility via Containers
-        self.ssh_container.setVisible(not is_serial)
-        self.serial_container.setVisible(is_serial)
-        
-        # Default Ports
-        if proto == "SSH": self.port_input.setText("22")
-        elif proto == "Telnet": self.port_input.setText("23")
-
-    def toggle_connection(self):
-        if self.worker and self.worker.isRunning():
-            self.disconnect()
-        else:
-            self.connect()
-
-    def connect(self):
-        proto = self.protocol_selector.currentText()
-        self.connect_btn.setEnabled(False)
-        self.terminal.clear()
-        
-        if proto == "SSH":
-            host = self.host_input.text().strip()
-            port = int(self.port_input.text() or "22")
-            self.terminal.append(f"[*] {_('remote_connecting_ssh', 'Connecting to')} {host}:{port} via SSH...")
-            self.worker = SSHWorker(host, port)
-        elif proto == "Telnet":
-            host = self.host_input.text().strip()
-            port = int(self.port_input.text() or "23")
-            self.terminal.append(f"[*] {_('remote_connecting_telnet', 'Connecting to')} {host}:{port} via Telnet...")
-            self.worker = TelnetWorker(host, port)
-        elif proto == "Serial":
-            line = self.serial_line.text().strip()
-            speed = int(self.speed_input.text() or "9600")
-            self.terminal.append(f"[*] {_('remote_opening_serial', 'Opening')} {line} at {speed} baud...")
-            self.worker = SerialWorker(line, speed)
-            
-        self.worker.output_ready.connect(self.handle_terminal_output)
-        self.worker.connected.connect(self.on_connected)
-        self.worker.error_occurred.connect(self.on_error)
-        self.worker.start()
-
-    def on_connected(self, shell):
-        self.shell = shell
-        self.terminal.append("[+] " + _("remote_connect_success", "Connected successfully."))
-        self.connect_btn.setText(_("remote_disconnect", "Disconnect"))
-        self.connect_btn.setStyleSheet("background-color: #ff5252;")
-        self.connect_btn.setEnabled(True)
-        self.cmd_input.setEnabled(True)
-        self.cmd_input.setFocus()
-
-    def on_error(self, err):
-        self.terminal.append(f"[-] {_('remote_error', 'Error')}: {err}")
-        self.connect_btn.setEnabled(True)
-        self.connect_btn.setText(_("remote_connect", "Connect"))
-
-    def disconnect(self):
-        if self.worker:
-            self.worker.stop()
-        self.terminal.append("[*] " + _("remote_disconnected_msg", "Disconnected."))
-        self.connect_btn.setText(_("remote_connect", "Connect"))
-        self.connect_btn.setStyleSheet("")
-        self.cmd_input.setEnabled(False)
-
-    def send_command(self):
-        cmd = self.cmd_input.text()
-        if cmd and self.shell:
-            self.command_history.append(cmd)
-            self.history_index = -1
-            self.handle_terminal_output(f"\n\x1b[36m$ {cmd}\x1b[0m\n")
-            try:
-                if hasattr(self.shell, 'send'):
-                    # Fix: socket.send requires bytes, not str
-                    self.shell.send((cmd + "\n").encode('utf-8'))
-                elif hasattr(self.shell, 'write'):
-                    self.shell.write((cmd + "\n").encode('utf-8'))
-            except Exception as e:
-                self.terminal.append(f"<br><span style='color: #ff5252;'>[!] Send Error: {e}</span>")
-            self.cmd_input.clear()
-
-    def handle_terminal_output(self, data):
-        # 1. Clean carriage returns
-        data = data.replace('\r\n', '\n').replace('\r', '')
-        
-        # 2. ANSI to HTML color converter
-        import re
-        ansi_color_map = {
-            '30': '#000000', '31': '#EF4444', '32': '#10B981', '33': '#F59E0B',
-            '34': '#3B82F6', '35': '#8B5CF6', '36': '#06B6D4', '37': '#F1F5F9',
-            '90': '#64748B', '91': '#F87171', '92': '#34D399', '93': '#FCD34D',
-            '94': '#60A5FA', '95': '#A78BFA', '96': '#22D3EE', '97': '#FFFFFF'
-        }
-        
-        data = data.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        
-        parts = re.split(r'\x1b\[([\d;]+)m', data)
-        html_out = ""
-        is_bold = False
-        current_color = None
-        
-        for i, part in enumerate(parts):
-            if i % 2 == 0:
-                html_out += part
-            else:
-                codes = part.split(';')
-                for code in codes:
-                    if code == '0':
-                        if current_color or is_bold:
-                            html_out += '</span>'
-                            current_color = None
-                            is_bold = False
-                    elif code == '1':
-                        is_bold = True
-                    elif code in ansi_color_map:
-                        if current_color or is_bold:
-                            html_out += '</span>'
-                        current_color = ansi_color_map[code]
-                        style = f"color: {current_color};"
-                        if is_bold:
-                            style += " font-weight: bold;"
-                        html_out += f'<span style="{style}">'
-                        
-        if current_color or is_bold:
-            html_out += '</span>'
-            
-        html_out = html_out.replace('\n', '<br>')
-        
-        # 3. Insert and Auto-Scroll
-        from PySide6.QtGui import QTextCursor
-        self.terminal.moveCursor(QTextCursor.End)
-        self.terminal.insertHtml(html_out)
-        self.terminal.moveCursor(QTextCursor.End)
-        
 class SSHWorker(QThread):
-    output_ready = Signal(str)
-    connected = Signal(object)
+    """Paramiko SSH shell thread using strict known_hosts verification (never auto-trusts unknown keys)."""
+
+    output_received = Signal(str)
+    connected = Signal(str)
+    disconnected = Signal(str)
     error_occurred = Signal(str)
-    
-    def __init__(self, host, port):
+    host_key_confirm_requested = Signal(str, int, str, str, object)
+
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        username: str,
+        password: str = "",
+        key_path: str = "",
+        policy_mode: str = "TOFU_CONFIRM",
+        known_hosts_path: Optional[str] = None,
+        timeout_sec: int = 15,
+        access_service: Optional[DeviceAccessService] = None,
+    ) -> None:
         super().__init__()
         self.host = host
-        self.port = port
-        self.running = True
-        self.client = None
-        self.shell = None
+        self.port = int(port or 22)
+        self.username = username
+        self.password = password
+        self.key_path = key_path
+        self.policy_mode = policy_mode
+        self.known_hosts_path = known_hosts_path
+        self.timeout_sec = int(timeout_sec or 15)
+        self.access_service = access_service or DeviceAccessService(DatabaseManager(), known_hosts_path=known_hosts_path)
 
-    def run(self):
+        self._client: Optional[paramiko.SSHClient] = None
+        self._channel = None
+        self._running = False
+        self._send_lock = threading.Lock()
+
+    def _confirm_unknown_key(self, host: str, port: int, key_type: str, fingerprint: str) -> bool:
+        holder: Dict[str, Any] = {"event": threading.Event(), "accepted": False}
+        self.host_key_confirm_requested.emit(host, int(port), key_type, fingerprint, holder)
+        holder["event"].wait(timeout=60.0)
+        accepted = bool(holder.get("accepted"))
+        self.access_service.record_host_key_trust(host, port, key_type, fingerprint, accepted)
+        return accepted
+
+    def run(self) -> None:
+        self._running = True
+        client = paramiko.SSHClient()
+        policy = self.access_service.create_host_key_policy(
+            policy_mode=self.policy_mode,
+            confirm_callback=self._confirm_unknown_key if self.policy_mode == "TOFU_CONFIRM" else None,
+            port=self.port,
+        )
+        client.set_missing_host_key_policy(policy)
+
         try:
-            self.client = paramiko.SSHClient()
-            self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            
-            # Use current system user for the initial SSH connection
-            user = getpass.getuser()
-            
-            try:
-                # Use an empty string for password to allow the initial connection
-                # which then drops into the AP's internal login prompt (PuTTY style).
-                self.client.connect(
-                    self.host, 
-                    port=self.port, 
-                    username=user,
-                    password="",
-                    allow_agent=True, 
-                    look_for_keys=True,
-                    timeout=20,
-                    banner_timeout=40
-                )
-            except Exception as e:
-                # Fallback to 'admin' with empty password (common for many APs)
-                try:
-                    self.client.connect(self.host, port=self.port, username="admin", password="", timeout=10)
-                except:
-                    self.error_occurred.emit(f"SSH Error: {str(e)}")
-                    return
-            
-            self.shell = self.client.invoke_shell()
-            self.shell.setblocking(0)
-            self.connected.emit(self.shell)
-            
-            while self.running:
-                if self.shell.recv_ready():
-                    data = self.shell.recv(4096).decode('utf-8', errors='ignore')
-                    if data:
-                        self.output_ready.emit(data)
-                self.msleep(10)
-                
-        except Exception as e:
-            self.error_occurred.emit(str(e))
-        finally:
-            if self.client:
-                self.client.close()
+            kwargs: Dict[str, Any] = {
+                "hostname": self.host,
+                "port": self.port,
+                "username": self.username,
+                "timeout": self.timeout_sec,
+                "look_for_keys": bool(not self.password and not self.key_path),
+                "allow_agent": False,
+            }
+            if self.password:
+                kwargs["password"] = self.password
+            if self.key_path:
+                kwargs["key_filename"] = self.key_path
 
-    def stop(self):
-        self.running = False
-        self.wait()
+            # Validate any previously pinned fingerprint explicitly when present
+            client.connect(**kwargs)
+            transport = client.get_transport()
+            if transport and transport.is_active():
+                srv_key = transport.get_remote_server_key()
+                res = self.access_service.known_hosts.verify_host_key(self.host, self.port, srv_key)
+                if res.status == "MISMATCH":
+                    raise paramiko.SSHException(
+                        f"HOST KEY MISMATCH for {self.host}:{self.port}! Expected {res.expected_fingerprint}, got {res.fingerprint}"
+                    )
+
+            self._client = client
+            self._channel = client.invoke_shell(term="vt100", width=120, height=40)
+            self._channel.settimeout(0.2)
+            self.connected.emit(f"SSH connected to {self.username}@{self.host}:{self.port} (Host Key Verified)")
+
+            while self._running and self._channel and not self._channel.closed:
+                if self._channel.recv_ready():
+                    chunk = self._channel.recv(4096).decode("utf-8", errors="replace")
+                    if chunk:
+                        self.output_received.emit(_ansi_to_plain(chunk))
+                else:
+                    time.sleep(0.05)
+        except Exception as exc:
+            if self._running:
+                self.error_occurred.emit(str(exc))
+        finally:
+            self.stop()
+            self.disconnected.emit(f"SSH session closed ({self.host}:{self.port})")
+
+    def send_command(self, cmd: str) -> None:
+        with self._send_lock:
+            if self._channel and not self._channel.closed:
+                payload = cmd if cmd.endswith("\n") else f"{cmd}\n"
+                self._channel.send(payload.encode("utf-8"))
+
+    def send_raw(self, data: str) -> None:
+        with self._send_lock:
+            if self._channel and not self._channel.closed:
+                self._channel.send(data.encode("utf-8"))
+
+    def stop(self) -> None:
+        self._running = False
+        try:
+            if self._channel:
+                self._channel.close()
+        except Exception:
+            pass
+        try:
+            if self._client:
+                self._client.close()
+        except Exception:
+            pass
+
 
 class TelnetWorker(QThread):
-    output_ready = Signal(str)
-    connected = Signal(object)
+    """Lightweight raw-socket Telnet client compatible with Python 3.14+."""
+
+    output_received = Signal(str)
+    connected = Signal(str)
+    disconnected = Signal(str)
     error_occurred = Signal(str)
-    
-    def __init__(self, host, port):
+
+    def __init__(self, host: str, port: int = 23, timeout_sec: int = 10) -> None:
         super().__init__()
         self.host = host
-        self.port = port
-        self.running = True
+        self.port = int(port or 23)
+        self.timeout_sec = int(timeout_sec or 10)
+        self._sock: Optional[socket.socket] = None
+        self._running = False
+        self._lock = threading.Lock()
 
-    def run(self):
-        s = None
+    @staticmethod
+    def _strip_iac(data: bytes) -> bytes:
+        out = bytearray()
+        i = 0
+        n = len(data)
+        while i < n:
+            if data[i] == 255 and i + 2 < n:
+                i += 3
+            else:
+                out.append(data[i])
+                i += 1
+        return bytes(out)
+
+    def run(self) -> None:
+        self._running = True
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(10)
-            s.connect((self.host, self.port))
-            s.setblocking(False)
-            self.connected.emit(s)
-            
-            while self.running:
+            self._sock = socket.create_connection((self.host, self.port), timeout=self.timeout_sec)
+            self._sock.settimeout(0.2)
+            self.connected.emit(f"Telnet connected to {self.host}:{self.port} (Unencrypted legacy protocol)")
+            while self._running and self._sock:
                 try:
-                    data = s.recv(1024).decode('utf-8', errors='ignore')
-                    if data: self.output_ready.emit(data)
-                except BlockingIOError:
-                    pass
-                self.msleep(100)
-        except Exception as e:
-            self.error_occurred.emit(str(e))
+                    chunk = self._sock.recv(4096)
+                    if not chunk:
+                        break
+                    clean = self._strip_iac(chunk).decode("utf-8", errors="replace")
+                    if clean:
+                        self.output_received.emit(_ansi_to_plain(clean))
+                except socket.timeout:
+                    continue
+        except Exception as exc:
+            if self._running:
+                self.error_occurred.emit(str(exc))
         finally:
-            if s:
-                try:
-                    s.close()
-                except Exception:
-                    pass
+            self.stop()
+            self.disconnected.emit(f"Telnet session closed ({self.host}:{self.port})")
 
-    def stop(self):
-        self.running = False
-        self.wait()
+    def send_command(self, cmd: str) -> None:
+        with self._lock:
+            if self._sock:
+                payload = cmd if cmd.endswith("\n") else f"{cmd}\r\n"
+                self._sock.sendall(payload.encode("utf-8"))
+
+    def stop(self) -> None:
+        self._running = False
+        try:
+            if self._sock:
+                self._sock.close()
+        except Exception:
+            pass
+
 
 class SerialWorker(QThread):
-    output_ready = Signal(str)
-    connected = Signal(object)
+    """Local Serial Console (RS-232 / USB COM) worker."""
+
+    output_received = Signal(str)
+    connected = Signal(str)
+    disconnected = Signal(str)
     error_occurred = Signal(str)
-    
-    def __init__(self, port, baud):
+
+    def __init__(self, port_name: str, baudrate: int = 9600) -> None:
         super().__init__()
-        self.port = port
-        self.baud = baud
-        self.running = True
+        self.port_name = port_name
+        self.baudrate = int(baudrate or 9600)
+        self._ser = None
+        self._running = False
 
-    def run(self):
-        ser = None
+    def run(self) -> None:
+        if not PYSERIAL_AVAILABLE:
+            self.error_occurred.emit("pyserial package is not installed.")
+            return
+        self._running = True
         try:
-            ser = serial.Serial(self.port, self.baud, timeout=0.1)
-            self.connected.emit(ser)
-            
-            while self.running:
-                if ser.in_waiting:
-                    data = ser.read(ser.in_waiting).decode('utf-8', errors='ignore')
-                    self.output_ready.emit(data)
-                self.msleep(100)
-        except Exception as e:
-            self.error_occurred.emit(str(e))
+            self._ser = serial.Serial(self.port_name, self.baudrate, timeout=0.2)
+            self.connected.emit(f"Serial console open on {self.port_name} @ {self.baudrate} baud")
+            while self._running and self._ser and self._ser.is_open:
+                waiting = self._ser.in_waiting
+                if waiting:
+                    data = self._ser.read(waiting).decode("utf-8", errors="replace")
+                    self.output_received.emit(_ansi_to_plain(data))
+                else:
+                    time.sleep(0.05)
+        except Exception as exc:
+            if self._running:
+                self.error_occurred.emit(str(exc))
         finally:
-            if ser:
-                try:
-                    ser.close()
-                except Exception:
-                    pass
+            self.stop()
+            self.disconnected.emit(f"Serial port closed ({self.port_name})")
 
-    def stop(self):
-        self.running = False
-        self.wait()
+    def send_command(self, cmd: str) -> None:
+        if self._ser and self._ser.is_open:
+            payload = cmd if cmd.endswith("\r") or cmd.endswith("\n") else f"{cmd}\r\n"
+            self._ser.write(payload.encode("utf-8"))
+
+    def stop(self) -> None:
+        self._running = False
+        try:
+            if self._ser and self._ser.is_open:
+                self._ser.close()
+        except Exception:
+            pass
+
+
+class SSHProfileDialog(QDialog):
+    """Create / manage DPAPI-protected reusable SSH profiles."""
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(_("acc_prof_dlg_title", "New SSH Credential Profile"))
+        self.setMinimumWidth(460)
+        self.setStyleSheet("QDialog { background-color: #0F172A; color: #F1F5F9; }")
+
+        root = QVBoxLayout(self)
+        form = QFormLayout()
+        form.setSpacing(8)
+
+        self.name_edit = QLineEdit()
+        self.vendor_combo = QComboBox()
+        self.vendor_combo.addItems(["cisco_ios", "ruckus_icx", "fortinet_fortigate", "generic_ssh"])
+        self.port_spin = QSpinBox()
+        self.port_spin.setRange(1, 65535)
+        self.port_spin.setValue(22)
+        self.user_edit = QLineEdit(getpass.getuser())
+        self.auth_combo = QComboBox()
+        self.auth_combo.addItems(["PASSWORD", "KEY", "KEY_WITH_PASSPHRASE"])
+        self.secret_edit = QLineEdit()
+        self.secret_edit.setEchoMode(QLineEdit.Password)
+
+        key_row = QHBoxLayout()
+        self.key_path_edit = QLineEdit()
+        browse_btn = QPushButton("...")
+        browse_btn.setFixedWidth(36)
+        browse_btn.clicked.connect(self._browse_key)
+        key_row.addWidget(self.key_path_edit, 1)
+        key_row.addWidget(browse_btn)
+
+        self.policy_combo = QComboBox()
+        self.policy_combo.addItems(["STRICT", "TOFU_CONFIRM"])
+
+        form.addRow(_("acc_prof_name", "Profile Name:"), self.name_edit)
+        form.addRow(_("acc_prof_vendor", "Vendor Profile:"), self.vendor_combo)
+        form.addRow(_("acc_prof_port", "SSH Port:"), self.port_spin)
+        form.addRow(_("acc_prof_user", "Username:"), self.user_edit)
+        form.addRow(_("acc_prof_auth", "Auth Method:"), self.auth_combo)
+        form.addRow(_("acc_prof_secret", "Password / Passphrase:"), self.secret_edit)
+        form.addRow(_("acc_prof_key", "Private Key File:"), key_row)
+        form.addRow(_("acc_prof_hk", "Host Key Policy:"), self.policy_combo)
+        root.addLayout(form)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        root.addWidget(btns)
+
+    def _browse_key(self) -> None:
+        path, _flt = QFileDialog.getOpenFileName(self, "Select Private Key", os.path.expanduser("~/.ssh"))
+        if path:
+            self.key_path_edit.setText(path)
+
+    def get_payload(self) -> Dict[str, Any]:
+        return {
+            "name": self.name_edit.text().strip(),
+            "vendor_profile": self.vendor_combo.currentText(),
+            "port": self.port_spin.value(),
+            "username": self.user_edit.text().strip(),
+            "auth_method": self.auth_combo.currentText(),
+            "secret": self.secret_edit.text(),
+            "private_key_path": self.key_path_edit.text().strip(),
+            "host_key_policy": self.policy_combo.currentText(),
+        }
+
+
+class CommandConfirmDialog(QDialog):
+    """Explicit confirmation dialog for MODIFYING / DESTRUCTIVE remote commands."""
+
+    def __init__(self, command: str, tier: str, reason: str, target_label: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(_("acc_cmd_confirm_title", "Confirm Guarded CLI Command"))
+        self.setMinimumWidth(480)
+        self.setStyleSheet("QDialog { background-color: #0F172A; color: #F1F5F9; }")
+
+        root = QVBoxLayout(self)
+        color = "#F43F5E" if tier == "DESTRUCTIVE" else "#F59E0B"
+        hdr = QLabel(f"[{tier}] Target: {target_label}\n{reason}")
+        hdr.setWordWrap(True)
+        hdr.setStyleSheet(f"color: {color}; font-weight: bold;")
+        root.addWidget(hdr)
+
+        cmd_box = QTextEdit(command)
+        cmd_box.setReadOnly(True)
+        cmd_box.setMaximumHeight(90)
+        cmd_box.setStyleSheet("background-color: #020617; color: #38BDF8; font-family: Consolas; border: 1px solid #334155;")
+        root.addWidget(cmd_box)
+
+        form = QFormLayout()
+        self.ticket_edit = QLineEdit()
+        self.ticket_edit.setPlaceholderText("CHG-001 (optional ticket ref)")
+        form.addRow(_("vlan_confirm_ticket", "Change Ticket:"), self.ticket_edit)
+        root.addLayout(form)
+
+        self.chk = QCheckBox(_("acc_cmd_confirm_chk", "I confirm executing this modifying/destructive command."))
+        root.addWidget(self.chk)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        ok_b = btns.button(QDialogButtonBox.Ok)
+        ok_b.setEnabled(False)
+        self.chk.toggled.connect(ok_b.setEnabled)
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        root.addWidget(btns)
+
+    def ticket_ref(self) -> str:
+        return self.ticket_edit.text().strip()
+
+
+class RemoteSessionTab(QWidget):
+    """Individual terminal & guarded command execution tab inside Device Access Center."""
+
+    def __init__(
+        self,
+        access_service: DeviceAccessService,
+        session_label: str = "Session",
+        device_dict: Optional[Dict[str, Any]] = None,
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self.access_service = access_service
+        self.session_label = session_label
+        self.device_dict: Dict[str, Any] = dict(device_dict or {})
+        self.worker: Optional[QThread] = None
+        self._transcript: List[str] = []
+        self._extra_secrets: List[str] = []
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(6, 6, 6, 6)
+        root.setSpacing(6)
+
+        self.terminal = QTextEdit()
+        self.terminal.setReadOnly(True)
+        self.terminal.setFont(QFont("Consolas", 10))
+        self.terminal.setStyleSheet(
+            "QTextEdit { background-color: #020617; color: #E2E8F0; border: 1px solid #334155; border-radius: 6px; padding: 8px; }"
+        )
+        root.addWidget(self.terminal, 1)
+
+        cmd_row = QHBoxLayout()
+        self.cmd_input = QLineEdit()
+        self.cmd_input.setPlaceholderText(_("acc_cmd_ph", "Enter CLI command (READ_ONLY runs directly; MODIFYING/DESTRUCTIVE asks confirmation)..."))
+        self.cmd_input.returnPressed.connect(self.send_entered_command)
+        cmd_row.addWidget(self.cmd_input, 1)
+
+        self.send_btn = QPushButton(_("acc_btn_send", "Send"))
+        self.send_btn.setProperty("class", "PrimaryButton")
+        self.send_btn.clicked.connect(self.send_entered_command)
+        cmd_row.addWidget(self.send_btn)
+        root.addLayout(cmd_row)
+
+    def append_line(self, text: str) -> None:
+        clean = redact_sensitive_text(text, extra_secrets=self._extra_secrets)
+        self._transcript.append(clean)
+        self.terminal.moveCursor(QTextCursor.End)
+        self.terminal.insertPlainText(clean if clean.endswith("\n") else f"{clean}\n")
+        self.terminal.moveCursor(QTextCursor.End)
+
+    def start_ssh(
+        self,
+        host: str,
+        port: int,
+        username: str,
+        password: str = "",
+        key_path: str = "",
+        policy_mode: str = "TOFU_CONFIRM",
+    ) -> None:
+        self.disconnect_session()
+        if password:
+            self._extra_secrets.append(password)
+        w = SSHWorker(
+            host=host,
+            port=port,
+            username=username,
+            password=password,
+            key_path=key_path,
+            policy_mode=policy_mode,
+            access_service=self.access_service,
+        )
+        w.output_received.connect(self.append_line)
+        w.connected.connect(self.append_line)
+        w.disconnected.connect(self.append_line)
+        w.error_occurred.connect(lambda e: self.append_line(f"[ERROR] {e}"))
+        w.host_key_confirm_requested.connect(self._prompt_host_key)
+        self.worker = w
+        w.start()
+
+    def start_telnet(self, host: str, port: int = 23) -> None:
+        self.disconnect_session()
+        w = TelnetWorker(host=host, port=port)
+        w.output_received.connect(self.append_line)
+        w.connected.connect(self.append_line)
+        w.disconnected.connect(self.append_line)
+        w.error_occurred.connect(lambda e: self.append_line(f"[ERROR] {e}"))
+        self.worker = w
+        w.start()
+
+    def start_serial(self, port_name: str, baudrate: int = 9600) -> None:
+        self.disconnect_session()
+        w = SerialWorker(port_name=port_name, baudrate=baudrate)
+        w.output_received.connect(self.append_line)
+        w.connected.connect(self.append_line)
+        w.disconnected.connect(self.append_line)
+        w.error_occurred.connect(lambda e: self.append_line(f"[ERROR] {e}"))
+        self.worker = w
+        w.start()
+
+    def _prompt_host_key(self, host: str, port: int, key_type: str, fingerprint: str, holder: dict) -> None:
+        ans = QMessageBox.question(
+            self,
+            _("acc_hk_title", "Verify SSH Host Key"),
+            f"Unknown SSH host key for {host}:{port}\nType: {key_type}\nSHA-256: {fingerprint}\n\nTrust and store in known_hosts?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        holder["accepted"] = ans == QMessageBox.Yes
+        holder["event"].set()
+
+    def send_entered_command(self) -> None:
+        cmd = self.cmd_input.text().strip()
+        if not cmd:
+            return
+        self.send_guarded_command(cmd)
+        self.cmd_input.clear()
+
+    def send_guarded_command(self, cmd: str) -> None:
+        vendor_prof = detect_vlan_vendor_profile(
+            self.device_dict.get("vendor", ""),
+            self.device_dict.get("model", ""),
+            self.device_dict.get("role", ""),
+        )
+        if vendor_prof == "unsupported":
+            vendor_prof = "generic_ssh"
+        tier, reason = classify_command_tier(cmd, vendor_profile=vendor_prof)
+
+        confirmed = False
+        ticket = ""
+        if tier != "READ_ONLY":
+            dlg = CommandConfirmDialog(cmd, tier, reason, self.session_label, self)
+            if dlg.exec() != QDialog.Accepted:
+                self.access_service.audit.record_event(
+                    operation="SSH_COMMAND_BLOCKED",
+                    result="BLOCKED",
+                    device_id=self.device_dict.get("id"),
+                    device_name=self.device_dict.get("hostname", self.session_label),
+                    device_ip=self.device_dict.get("management_ip", ""),
+                    command_tier=tier,
+                    new_value={"command": cmd},
+                    detail="Operator cancelled modifying/destructive command confirmation.",
+                    extra_secrets=self._extra_secrets,
+                )
+                self.append_line(f"[BLOCKED {tier}] Command cancelled by operator: {cmd}")
+                return
+            confirmed = True
+            ticket = dlg.ticket_ref()
+
+        if self.worker and hasattr(self.worker, "send_command"):
+            self.worker.send_command(cmd)
+            self.access_service.audit.record_event(
+                operation="SSH_COMMAND_EXECUTED",
+                result="SUCCESS",
+                device_id=self.device_dict.get("id"),
+                device_name=self.device_dict.get("hostname", self.session_label),
+                device_ip=self.device_dict.get("management_ip", ""),
+                command_tier=tier,
+                new_value={"command": cmd, "confirmed": confirmed},
+                ticket_ref=ticket,
+                detail=reason,
+                extra_secrets=self._extra_secrets,
+            )
+        else:
+            self.append_line(f"[LOCAL GUARDED PREVIEW {tier}] Not connected -> {cmd}")
+
+    def disconnect_session(self) -> None:
+        if self.worker:
+            if hasattr(self.worker, "stop"):
+                self.worker.stop()
+            if self.worker.isRunning():
+                self.worker.quit()
+                self.worker.wait(2000)
+            self.worker = None
+
+
+class RemoteView(QWidget):
+    """Enterprise Device Access Center: Multi-session SSH/Telnet/Serial + Guarded CLI + RDP/HTTPS/SNMP."""
+
+    open_in_browser = Signal(str)
+    open_in_snmp = Signal(str)
+
+    def __init__(
+        self,
+        logger: Any = None,
+        db: Optional[DatabaseManager] = None,
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        if isinstance(logger, DatabaseManager) and db is None:
+            db = logger
+            logger = None
+        self.logger = logger
+        self.db = db or DatabaseManager()
+        self.audit = AuditLogger(self.db)
+        self.inventory = InventoryManager(self.db, audit_logger=self.audit)
+        self.profile_mgr = SSHProfileManager(self.db, audit_logger=self.audit)
+        self.access_service = DeviceAccessService(self.db, audit_logger=self.audit)
+        self._tabs_list: List[RemoteSessionTab] = []
+
+        self._setup_ui()
+        self.refresh_selectors()
+
+    @property
+    def worker(self) -> Optional[QThread]:
+        tab = self.session_tabs.currentWidget()
+        return getattr(tab, "worker", None) if tab else None
+
+    def _setup_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(20, 16, 20, 16)
+        root.setSpacing(10)
+
+        hdr = QHBoxLayout()
+        col = QVBoxLayout()
+        lbl_t = QLabel(_("acc_title", "Network Access & Device Administration"))
+        lbl_t.setStyleSheet("font-size: 20px; font-weight: bold; color: #F8FAFC;")
+        lbl_s = QLabel(_("acc_subtitle", "Multi-session SSH (strict known_hosts), Telnet, Serial, Guarded CLI & RDP/HTTPS links"))
+        lbl_s.setStyleSheet("color: #94A3B8; font-size: 12px;")
+        col.addWidget(lbl_t)
+        col.addWidget(lbl_s)
+        hdr.addLayout(col)
+        hdr.addStretch()
+
+        self.btn_web = QPushButton(_("acc_btn_https", "Open HTTPS Web UI"))
+        self.btn_web.clicked.connect(self._launch_web)
+        self.btn_rdp = QPushButton(_("acc_btn_rdp", "Launch RDP (mstsc)"))
+        self.btn_rdp.clicked.connect(self._launch_rdp)
+        self.btn_snmp = QPushButton(_("acc_btn_snmp", "Inspect in SNMP"))
+        self.btn_snmp.clicked.connect(self._launch_snmp)
+        self.btn_export_log = QPushButton(_("acc_btn_export", "Export Redacted Log"))
+        self.btn_export_log.clicked.connect(self._export_active_log)
+        for b in (self.btn_web, self.btn_rdp, self.btn_snmp, self.btn_export_log):
+            hdr.addWidget(b)
+        root.addLayout(hdr)
+
+        # Connection Toolbar
+        conn = QFrame()
+        conn.setStyleSheet("QFrame { background-color: #1E293B; border: 1px solid #334155; border-radius: 10px; }")
+        c_l = QHBoxLayout(conn)
+        c_l.setContentsMargins(10, 8, 10, 8)
+        c_l.setSpacing(8)
+
+        c_l.addWidget(QLabel(_("acc_lbl_dev", "Device:")))
+        self.device_combo = QComboBox()
+        self.device_combo.currentIndexChanged.connect(self._on_device_picked)
+        c_l.addWidget(self.device_combo, 1)
+
+        c_l.addWidget(QLabel(_("acc_lbl_proto", "Protocol:")))
+        self.proto_combo = QComboBox()
+        self.proto_combo.addItems(["SSH", "Telnet", "Serial COM"])
+        self.proto_combo.currentTextChanged.connect(self._on_proto_changed)
+        c_l.addWidget(self.proto_combo)
+
+        self.host_edit = QLineEdit()
+        self.host_edit.setPlaceholderText("IP / Host or COM1")
+        c_l.addWidget(self.host_edit, 1)
+
+        self.port_spin = QSpinBox()
+        self.port_spin.setRange(1, 65535)
+        self.port_spin.setValue(22)
+        c_l.addWidget(self.port_spin)
+
+        c_l.addWidget(QLabel(_("acc_lbl_prof", "SSH Profile:")))
+        self.profile_combo = QComboBox()
+        self.profile_combo.currentIndexChanged.connect(self._on_profile_picked)
+        c_l.addWidget(self.profile_combo)
+
+        self.btn_new_prof = QPushButton("+Profile")
+        self.btn_new_prof.clicked.connect(self._create_profile_dialog)
+        c_l.addWidget(self.btn_new_prof)
+
+        self.user_edit = QLineEdit(getpass.getuser())
+        self.user_edit.setPlaceholderText("Username")
+        c_l.addWidget(self.user_edit)
+
+        self.pass_edit = QLineEdit()
+        self.pass_edit.setEchoMode(QLineEdit.Password)
+        self.pass_edit.setPlaceholderText("Password / Key Pass")
+        c_l.addWidget(self.pass_edit)
+
+        self.connect_btn = QPushButton(_("acc_btn_connect", "Connect Tab"))
+        self.connect_btn.setProperty("class", "PrimaryButton")
+        self.connect_btn.clicked.connect(self.connect_session)
+        c_l.addWidget(self.connect_btn)
+
+        self.disconnect_btn = QPushButton(_("acc_btn_disconnect", "Disconnect"))
+        self.disconnect_btn.clicked.connect(self.disconnect)
+        c_l.addWidget(self.disconnect_btn)
+        root.addWidget(conn)
+
+        # Vendor Quick Diagnostic Commands Bar
+        qbar = QHBoxLayout()
+        qbar.addWidget(QLabel(_("acc_quick_cmds", "Safe Read-Only Diagnostics:")))
+        self.quick_cmd_row = QHBoxLayout()
+        qbar.addLayout(self.quick_cmd_row)
+        qbar.addStretch()
+        root.addLayout(qbar)
+
+        # Multi-session Tabs
+        self.session_tabs = QTabWidget()
+        self.session_tabs.setTabsClosable(True)
+        self.session_tabs.tabCloseRequested.connect(self._close_session_tab)
+        root.addWidget(self.session_tabs, 1)
+
+        self._add_new_tab("Session 1")
+        self._rebuild_quick_commands("generic_ssh")
+
+    def refresh_selectors(self) -> None:
+        self.device_combo.blockSignals(True)
+        self.device_combo.clear()
+        self.device_combo.addItem(_("acc_manual_target", "(Manual target)"), None)
+        for d in self.inventory.list_devices():
+            self.device_combo.addItem(f"{d['hostname']} ({d['management_ip']} | {d['vendor']})", d)
+        self.device_combo.blockSignals(False)
+
+        self.profile_combo.blockSignals(True)
+        self.profile_combo.clear()
+        self.profile_combo.addItem(_("acc_no_prof", "(Inline credentials)"), None)
+        for p in self.profile_mgr.list_profiles():
+            self.profile_combo.addItem(f"{p['name']} ({p['username']})", p["id"])
+        self.profile_combo.blockSignals(False)
+
+    def _on_proto_changed(self, proto: str) -> None:
+        if proto == "SSH":
+            self.port_spin.setValue(22)
+        elif proto == "Telnet":
+            self.port_spin.setValue(23)
+        else:
+            if PYSERIAL_AVAILABLE:
+                ports = [p.device for p in serial.tools.list_ports.comports()]
+                if ports and not self.host_edit.text().strip():
+                    self.host_edit.setText(ports[0])
+
+    def _on_device_picked(self) -> None:
+        d = self.device_combo.currentData()
+        if not isinstance(d, dict):
+            return
+        self.host_edit.setText(str(d.get("management_ip") or ""))
+        if d.get("ssh_profile_id"):
+            idx = self.profile_combo.findData(d["ssh_profile_id"])
+            if idx >= 0:
+                self.profile_combo.setCurrentIndex(idx)
+        vprof = detect_vlan_vendor_profile(d.get("vendor", ""), d.get("model", ""), d.get("role", ""))
+        self._rebuild_quick_commands("generic_ssh" if vprof == "unsupported" else vprof)
+
+    def _on_profile_picked(self) -> None:
+        pid = self.profile_combo.currentData()
+        if not pid:
+            return
+        prof = self.profile_mgr.get_profile(int(pid), include_secret=True)
+        if prof:
+            self.port_spin.setValue(int(prof["port"]))
+            self.user_edit.setText(prof["username"])
+            self.pass_edit.setText(prof.get("secret", ""))
+            self._rebuild_quick_commands(prof.get("vendor_profile", "generic_ssh"))
+
+    def _rebuild_quick_commands(self, vendor_profile: str) -> None:
+        while self.quick_cmd_row.count() > 0:
+            item = self.quick_cmd_row.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        cmds = VENDOR_QUICK_COMMANDS.get(vendor_profile, VENDOR_QUICK_COMMANDS["generic_ssh"])
+        for label, cmd in cmds:
+            btn = QPushButton(label)
+            btn.setToolTip(cmd)
+            btn.clicked.connect(lambda _chk=False, c=cmd: self._run_quick_cmd(c))
+            self.quick_cmd_row.addWidget(btn)
+
+    def _run_quick_cmd(self, cmd: str) -> None:
+        tab = self.session_tabs.currentWidget()
+        if isinstance(tab, RemoteSessionTab):
+            tab.send_guarded_command(cmd)
+
+    def _create_profile_dialog(self) -> None:
+        dlg = SSHProfileDialog(self)
+        if dlg.exec() == QDialog.Accepted:
+            try:
+                created = self.profile_mgr.create_profile(dlg.get_payload())
+                self.refresh_selectors()
+                idx = self.profile_combo.findData(created["id"])
+                if idx >= 0:
+                    self.profile_combo.setCurrentIndex(idx)
+            except Exception as exc:
+                QMessageBox.critical(self, "Profile Error", str(exc))
+
+    def _add_new_tab(self, title: str, device_dict: Optional[Dict[str, Any]] = None) -> RemoteSessionTab:
+        tab = RemoteSessionTab(self.access_service, session_label=title, device_dict=device_dict)
+        idx = self.session_tabs.addTab(tab, title)
+        self.session_tabs.setCurrentIndex(idx)
+        return tab
+
+    def _close_session_tab(self, index: int) -> None:
+        w = self.session_tabs.widget(index)
+        if isinstance(w, RemoteSessionTab):
+            w.disconnect_session()
+        if self.session_tabs.count() > 1:
+            self.session_tabs.removeTab(index)
+            if w:
+                w.deleteLater()
+
+    def connect_session(self) -> None:
+        host = self.host_edit.text().strip()
+        if not host:
+            return
+        proto = self.proto_combo.currentText()
+        dev = self.device_combo.currentData()
+        dev_dict = dev if isinstance(dev, dict) else {"hostname": host, "management_ip": host}
+        tab_title = f"{proto}:{dev_dict.get('hostname', host)}"
+        active = self.session_tabs.currentWidget()
+        if not isinstance(active, RemoteSessionTab) or active.worker is not None:
+            active = self._add_new_tab(tab_title, device_dict=dev_dict)
+        else:
+            active.device_dict = dev_dict
+            active.session_label = tab_title
+            self.session_tabs.setTabText(self.session_tabs.currentIndex(), tab_title)
+
+        pid = self.profile_combo.currentData()
+        key_path = ""
+        policy_mode = "TOFU_CONFIRM"
+        if pid:
+            prof = self.profile_mgr.get_profile(int(pid), include_secret=True)
+            if prof:
+                key_path = prof.get("private_key_path", "")
+                policy_mode = prof.get("host_key_policy", "TOFU_CONFIRM")
+
+        if proto == "SSH":
+            active.start_ssh(
+                host=host,
+                port=self.port_spin.value(),
+                username=self.user_edit.text().strip(),
+                password=self.pass_edit.text(),
+                key_path=key_path,
+                policy_mode=policy_mode,
+            )
+        elif proto == "Telnet":
+            active.start_telnet(host=host, port=self.port_spin.value())
+        else:
+            active.start_serial(port_name=host, baudrate=9600)
+
+    def disconnect(self) -> None:
+        tab = self.session_tabs.currentWidget()
+        if isinstance(tab, RemoteSessionTab):
+            tab.disconnect_session()
+
+    def open_device(self, device_or_ip: Any, protocol: str = "SSH") -> None:
+        self.refresh_selectors()
+        if isinstance(device_or_ip, dict):
+            ip = str(device_or_ip.get("management_ip") or "")
+            self.host_edit.setText(ip)
+            vprof = detect_vlan_vendor_profile(
+                device_or_ip.get("vendor", ""),
+                device_or_ip.get("model", ""),
+                device_or_ip.get("role", ""),
+            )
+            self._rebuild_quick_commands("generic_ssh" if vprof == "unsupported" else vprof)
+        else:
+            self.host_edit.setText(str(device_or_ip or ""))
+        idx = self.proto_combo.findText(protocol)
+        if idx >= 0:
+            self.proto_combo.setCurrentIndex(idx)
+
+    def _launch_web(self) -> None:
+        host = self.host_edit.text().strip()
+        if not host:
+            return
+        url = self.access_service.build_web_admin_url(host, https=True)
+        self.open_in_browser.emit(url)
+
+    def _launch_rdp(self) -> None:
+        host = self.host_edit.text().strip()
+        if not host:
+            return
+        try:
+            args = self.access_service.build_rdp_launch_args(host)
+            kwargs: Dict[str, Any] = {}
+            if os.name == "nt":
+                kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+            subprocess.Popen(args, **kwargs)
+            self.audit.record_event(operation="RDP_LAUNCHED", result="SUCCESS", device_ip=host, command_tier="SYSTEM")
+        except Exception as exc:
+            QMessageBox.critical(self, "RDP Error", str(exc))
+
+    def _launch_snmp(self) -> None:
+        host = self.host_edit.text().strip()
+        if host:
+            self.open_in_snmp.emit(host)
+
+    def _export_active_log(self) -> None:
+        tab = self.session_tabs.currentWidget()
+        if not isinstance(tab, RemoteSessionTab):
+            return
+        path, _flt = QFileDialog.getSaveFileName(self, "Export Redacted Session Log", "session_log.txt", "Text Files (*.txt)")
+        if not path:
+            return
+        self.access_service.export_session_log(tab._transcript, path, extra_secrets=tab._extra_secrets)
+
+    def shutdown(self) -> None:
+        for i in range(self.session_tabs.count()):
+            w = self.session_tabs.widget(i)
+            if isinstance(w, RemoteSessionTab):
+                w.disconnect_session()

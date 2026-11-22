@@ -43,7 +43,7 @@ def main():
 
     # 0. Load settings for flags from centralized config manager
     config_manager = ConfigManager()
-    if config_manager.get("disable_ssl", False):
+    if config_manager.get("disable_ssl", True):
         os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--ignore-certificate-errors --ignore-ssl-errors"
     else:
         if "QTWEBENGINE_CHROMIUM_FLAGS" in os.environ:
@@ -54,10 +54,100 @@ def main():
     logger.info("BahaaIT Network Tools Starting...")
 
     # 3. Create App
-    from PySide6.QtCore import Qt
+    from PySide6.QtCore import Qt, QUrl, QStandardPaths
+    from PySide6.QtWidgets import QFileDialog
     QApplication.setAttribute(Qt.AA_DontUseNativeDialogs, True)
     app = QApplication(sys.argv)
     app.setApplicationName("BahaaIT Network Tools")
+
+    # Configure QFileDialog globally with Desktop, Documents & Downloads shortcuts in sidebar
+    def _default_sidebar_urls():
+        urls = [QUrl("file:")]
+        seen = set()
+        candidates = [
+            QStandardPaths.writableLocation(QStandardPaths.DesktopLocation),
+            os.path.join(os.path.expanduser("~"), "Desktop"),
+            QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation),
+            os.path.join(os.path.expanduser("~"), "Documents"),
+            QStandardPaths.writableLocation(QStandardPaths.DownloadLocation),
+            os.path.join(os.path.expanduser("~"), "Downloads"),
+        ]
+        for p in candidates:
+            if p and os.path.isdir(p):
+                norm = os.path.normcase(os.path.abspath(p))
+                if norm not in seen:
+                    seen.add(norm)
+                    urls.append(QUrl.fromLocalFile(os.path.abspath(p)))
+        return urls
+
+    def _widen_file_dialog_sidebar(dlg):
+        from PySide6.QtWidgets import QSplitter, QListView
+        sidebar = dlg.findChild(QListView, "sidebar")
+        if sidebar:
+            sidebar.setMinimumWidth(185)
+        splitter = dlg.findChild(QSplitter, "splitter")
+        if splitter:
+            splitter.setSizes([195, 625])
+
+    def _resolve_initial_dir_and_file(dir_arg: str):
+        desktop = QStandardPaths.writableLocation(QStandardPaths.DesktopLocation)
+        if not desktop or not os.path.isdir(desktop):
+            desktop = os.path.expanduser("~")
+        if not dir_arg:
+            return desktop, ""
+        if os.path.isdir(dir_arg):
+            return dir_arg, ""
+        parent = os.path.dirname(dir_arg)
+        base = os.path.basename(dir_arg)
+        if parent and os.path.isdir(parent):
+            return parent, base
+        return desktop, base
+
+    def _enhanced_apply_default_suffix(dlg, filter_str: str):
+        import re
+        m = re.search(r'\*\.([a-zA-Z0-9]+)', filter_str or "")
+        if m:
+            dlg.setDefaultSuffix(m.group(1))
+
+    def _enhanced_get_save_file_name(parent=None, caption="", dir="", filter="", selectedFilter="", options=QFileDialog.Option(0)):
+        start_dir, base_file = _resolve_initial_dir_and_file(dir)
+        dlg = QFileDialog(parent, caption, start_dir, filter)
+        dlg.setAcceptMode(QFileDialog.AcceptSave)
+        dlg.setFileMode(QFileDialog.AnyFile)
+        dlg.setOptions(options | QFileDialog.DontUseNativeDialog)
+        dlg.setSidebarUrls(_default_sidebar_urls())
+        _enhanced_apply_default_suffix(dlg, selectedFilter or filter)
+        dlg.resize(820, 480)
+        _widen_file_dialog_sidebar(dlg)
+        if selectedFilter:
+            dlg.selectNameFilter(selectedFilter)
+        if base_file:
+            dlg.selectFile(base_file)
+        if dlg.exec():
+            files = dlg.selectedFiles()
+            return (files[0] if files else "", dlg.selectedNameFilter())
+        return ("", "")
+
+    def _enhanced_get_open_file_name(parent=None, caption="", dir="", filter="", selectedFilter="", options=QFileDialog.Option(0)):
+        start_dir, base_file = _resolve_initial_dir_and_file(dir)
+        dlg = QFileDialog(parent, caption, start_dir, filter)
+        dlg.setAcceptMode(QFileDialog.AcceptOpen)
+        dlg.setFileMode(QFileDialog.ExistingFile)
+        dlg.setOptions(options | QFileDialog.DontUseNativeDialog)
+        dlg.setSidebarUrls(_default_sidebar_urls())
+        dlg.resize(820, 480)
+        _widen_file_dialog_sidebar(dlg)
+        if selectedFilter:
+            dlg.selectNameFilter(selectedFilter)
+        if base_file:
+            dlg.selectFile(base_file)
+        if dlg.exec():
+            files = dlg.selectedFiles()
+            return (files[0] if files else "", dlg.selectedNameFilter())
+        return ("", "")
+
+    QFileDialog.getSaveFileName = staticmethod(_enhanced_get_save_file_name)
+    QFileDialog.getOpenFileName = staticmethod(_enhanced_get_open_file_name)
     
     from PySide6.QtGui import QIcon
     if getattr(sys, 'frozen', False):

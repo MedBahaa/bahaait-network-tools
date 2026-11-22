@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QPushButton, QStackedWidget, QLabel, QFrame, QStatusBar, QGraphicsOpacityEffect)
+                             QPushButton, QStackedWidget, QLabel, QFrame, QStatusBar, QGraphicsOpacityEffect, QScrollArea)
 from PySide6.QtCore import Qt, QSize, QTimer, QPropertyAnimation, QEasingCurve, Signal
 from PySide6.QtGui import QIcon, QFont
 from ui.widgets.dashboard_view import DashboardView
@@ -78,8 +78,8 @@ class MainWindow(QMainWindow):
         self.setup_views()
         self.update_header_stats()
         
-        # Setup background preloading queue for lazy-loaded tabs (Indices 1 to 10)
-        self.tabs_to_preload = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        # Setup background preloading queue for lazy-loaded tabs (Indices 1 to 18)
+        self.tabs_to_preload = list(range(1, 19))
         # Start preloading 1.5s after showing main window (leaves CPU free for initial rendering)
         QTimer.singleShot(1500, self.preload_next_tab)
 
@@ -277,9 +277,22 @@ class MainWindow(QMainWindow):
     def setup_sidebar(self):
         self.sidebar = QFrame()
         self.sidebar.setObjectName("Sidebar")
-        self.sidebar_layout = QVBoxLayout(self.sidebar)
-        self.sidebar_layout.setContentsMargins(0, 15, 0, 40)
-        self.sidebar_layout.setSpacing(12)
+        outer_sidebar_layout = QVBoxLayout(self.sidebar)
+        outer_sidebar_layout.setContentsMargins(0, 8, 0, 16)
+        outer_sidebar_layout.setSpacing(0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setStyleSheet("background: transparent;")
+
+        scroll_container = QWidget()
+        scroll_container.setStyleSheet("background: transparent;")
+        self.sidebar_layout = QVBoxLayout(scroll_container)
+        self.sidebar_layout.setContentsMargins(0, 6, 0, 20)
+        self.sidebar_layout.setSpacing(8)
         
         self.nav_buttons = []
         self.page_nav_buttons = {}
@@ -289,6 +302,9 @@ class MainWindow(QMainWindow):
             (_("group_monitoring", "Monitoring"), [
                 (_("nav_dashboard", "Dashboard"), 0, "dashboard.svg"),
                 (_("nav_live_monitoring", "Live Monitoring"), 1, "activity.svg"),
+                (_("nav_snmp_infra", "SNMP Infrastructure"), 11, "layers.svg"),
+                (_("nav_syslog_monitor", "Syslog Monitor"), 12, "history.svg"),
+                (_("nav_intelligence", "Network Intelligence"), 13, "chart.svg"),
                 (_("nav_global_status", "Global Status"), 9, "globe.svg"),
             ]),
             (_("group_tools", "Tools"), [
@@ -298,8 +314,15 @@ class MainWindow(QMainWindow):
             ]),
             (_("group_management", "Management"), [
                 (_("nav_web_manager", "Web Manager"), 7, "browser.svg"),
-                (_("nav_remote", "Remote Terminal"), 8, "terminal.svg"),
+                (_("nav_remote", "Device Access Center"), 8, "terminal.svg"),
                 (_("nav_sites", "Sites Manager"), 10, "layers.svg"),
+            ]),
+            (_("group_infrastructure", "Infrastructure"), [
+                (_("nav_topology", "Network Topology"), 14, "globe.svg"),
+                (_("nav_inventory", "Device Inventory"), 15, "layers.svg"),
+                (_("nav_vlan_mgmt", "VLAN Management"), 16, "sliders.svg"),
+                (_("nav_config_backup", "Config & Backups"), 17, "history.svg"),
+                (_("nav_audit_trail", "Audit Trail"), 18, "activity.svg"),
             ]),
             (_("group_system", "System"), [
                 (_("nav_net_config", "Network Config"), 4, "sliders.svg"),
@@ -320,13 +343,13 @@ class MainWindow(QMainWindow):
             cat_label = QLabel(group_name)
             cat_label.setObjectName("SidebarCategory")
             self.sidebar_layout.addWidget(cat_label)
-            self.sidebar_layout.addSpacing(8) # Force physical spacing before first button
+            self.sidebar_layout.addSpacing(4)
             
             for text, index, icon_name in items:
-                btn = QPushButton("  " + text) # Ajout d'espaces pour décaler du bord/icône
+                btn = QPushButton("  " + text)
                 btn.setCheckable(True)
                 btn.setAutoExclusive(True)
-                btn.setMinimumHeight(45)
+                btn.setMinimumHeight(38)
                 btn.setCursor(Qt.PointingHandCursor)
                 
                 # Set Icon
@@ -344,6 +367,8 @@ class MainWindow(QMainWindow):
                 self.page_nav_buttons[index] = btn
             
         self.sidebar_layout.addStretch()
+        scroll.setWidget(scroll_container)
+        outer_sidebar_layout.addWidget(scroll)
         
         self.body_layout.addWidget(self.sidebar)
 
@@ -357,7 +382,12 @@ class MainWindow(QMainWindow):
         """Loads a tab by its index if not already loaded. Returns True if a load occurred."""
         if index == 1 and self.monitor is None:
             from ui.widgets.monitor_view import MonitorView
-            self.monitor = MonitorView(self.logger, self.alarm_manager, self.config_manager)
+            self.monitor = MonitorView(
+                self.logger,
+                self.alarm_manager,
+                self.config_manager,
+                tray_manager=self.tray_manager,
+            )
             self._replace_placeholder(1, self.monitor)
             return True
             
@@ -400,6 +430,8 @@ class MainWindow(QMainWindow):
         elif index == 8 and self.remote_view is None:
             from ui.widgets.remote_view import RemoteView
             self.remote_view = RemoteView(self.logger)
+            self.remote_view.open_in_browser.connect(self._open_site_in_browser)
+            self.remote_view.open_in_snmp.connect(self._open_ip_in_snmp)
             self._replace_placeholder(8, self.remote_view)
             return True
             
@@ -413,7 +445,65 @@ class MainWindow(QMainWindow):
             from ui.widgets.sites_view import SitesView
             self.sites_view = SitesView(self.logger, self.config_manager)
             self.sites_view.open_in_browser.connect(self._open_site_in_browser)
+            self.sites_view.open_in_access_center.connect(self._open_device_in_access)
+            self.sites_view.open_in_topology.connect(self._open_site_in_topology)
             self._replace_placeholder(10, self.sites_view)
+            return True
+
+        elif index == 11 and self.snmp_view is None:
+            from ui.widgets.snmp_view import SNMPView
+            self.snmp_view = SNMPView(self.logger, self.config_manager)
+            self._replace_placeholder(11, self.snmp_view)
+            return True
+
+        elif index == 12 and self.syslog_view is None:
+            from ui.widgets.syslog_view import SyslogView
+            self.syslog_view = SyslogView(self.logger, self.config_manager)
+            self._replace_placeholder(12, self.syslog_view)
+            return True
+
+        elif index == 13 and self.intelligence_view is None:
+            from ui.widgets.intelligence_view import IntelligenceView
+            self.intelligence_view = IntelligenceView(
+                self.logger,
+                self.config_manager,
+                snmp_snapshots_provider=self._get_live_snmp_snapshots,
+            )
+            self._replace_placeholder(13, self.intelligence_view)
+            return True
+
+        elif index == 14 and self.topology_view is None:
+            from ui.widgets.topology_view import TopologyView
+            self.topology_view = TopologyView()
+            self.topology_view.open_in_access_center.connect(self._open_device_in_access)
+            self.topology_view.open_in_browser.connect(self._open_site_in_browser)
+            self._replace_placeholder(14, self.topology_view)
+            return True
+
+        elif index == 15 and self.inventory_view is None:
+            from ui.widgets.inventory_view import InventoryView
+            self.inventory_view = InventoryView(self.logger, self.config_manager, auth_manager=self.auth_manager)
+            self.inventory_view.open_in_access_center.connect(self._open_device_in_access)
+            self.inventory_view.open_in_topology.connect(self._open_device_in_topology)
+            self._replace_placeholder(15, self.inventory_view)
+            return True
+
+        elif index == 16 and self.vlan_view is None:
+            from ui.widgets.vlan_view import VLANView
+            self.vlan_view = VLANView()
+            self._replace_placeholder(16, self.vlan_view)
+            return True
+
+        elif index == 17 and self.backup_view is None:
+            from ui.widgets.backup_view import BackupView
+            self.backup_view = BackupView()
+            self._replace_placeholder(17, self.backup_view)
+            return True
+
+        elif index == 18 and self.audit_view is None:
+            from ui.widgets.audit_view import AuditView
+            self.audit_view = AuditView(auth_manager=self.auth_manager)
+            self._replace_placeholder(18, self.audit_view)
             return True
             
         return False
@@ -465,6 +555,11 @@ class MainWindow(QMainWindow):
         self.animation.finished.connect(lambda w=widget: w.setGraphicsEffect(None))
         self.animation.start()
 
+    def _get_live_snmp_snapshots(self):
+        if getattr(self, "snmp_view", None) is not None:
+            return self.snmp_view.get_live_snapshots()
+        return {}
+
     def setup_views(self):
         self.dashboard = DashboardView(self.logger, self.config_manager)
         
@@ -479,12 +574,54 @@ class MainWindow(QMainWindow):
         self.remote_view = None
         self.service_status_view = None
         self.sites_view = None
+        self.snmp_view = None
+        self.syslog_view = None
+        self.intelligence_view = None
+        self.topology_view = None
+        self.inventory_view = None
+        self.vlan_view = None
+        self.backup_view = None
+        self.audit_view = None
         
         self.content_area.addWidget(self.dashboard)       # Index 0
         
-        # Add placeholders for all lazy loaded screens (Indices 1 to 10)
-        for _ in range(10):
+        # Add placeholders for all lazy loaded screens (Indices 1 to 18)
+        for _ in range(18):
             self.content_area.addWidget(QWidget())
+
+    def _open_device_in_access(self, target, protocol: str = "SSH"):
+        self.load_tab_by_index(8)
+        if self.remote_view is not None:
+            self.remote_view.open_device(target, protocol=protocol)
+        self.switch_page(8)
+        if 8 in self.page_nav_buttons:
+            self.page_nav_buttons[8].setChecked(True)
+
+    def _open_site_in_topology(self, site_id: int):
+        self.load_tab_by_index(14)
+        if self.topology_view is not None:
+            idx = self.topology_view.site_combo.findData(int(site_id))
+            if idx >= 0:
+                self.topology_view.site_combo.setCurrentIndex(idx)
+            self.topology_view.refresh()
+        self.switch_page(14)
+        if 14 in self.page_nav_buttons:
+            self.page_nav_buttons[14].setChecked(True)
+
+    def _open_device_in_topology(self, device_id: int):
+        self.load_tab_by_index(14)
+        if self.topology_view is not None:
+            self.topology_view.refresh()
+            self.topology_view.canvas.select_device(int(device_id))
+        self.switch_page(14)
+        if 14 in self.page_nav_buttons:
+            self.page_nav_buttons[14].setChecked(True)
+
+    def _open_ip_in_snmp(self, _ip: str):
+        self.load_tab_by_index(11)
+        self.switch_page(11)
+        if 11 in self.page_nav_buttons:
+            self.page_nav_buttons[11].setChecked(True)
 
     def _open_site_in_browser(self, ip):
         """Switch to Web Manager and navigate to the given IP/URL."""
@@ -540,12 +677,31 @@ class MainWindow(QMainWindow):
         try:
             if hasattr(self, "header_timer") and self.header_timer:
                 self.header_timer.stop()
-            if getattr(self, "dashboard", None) is not None and hasattr(self.dashboard, "timer"):
-                self.dashboard.timer.stop()
+            if getattr(self, "dashboard", None) is not None:
+                if hasattr(self.dashboard, "shutdown"):
+                    self.dashboard.shutdown()
+                elif hasattr(self.dashboard, "timer"):
+                    self.dashboard.timer.stop()
+            if getattr(self, "snmp_view", None) is not None:
+                self.snmp_view.shutdown()
+            if getattr(self, "syslog_view", None) is not None:
+                self.syslog_view.shutdown()
+            if getattr(self, "intelligence_view", None) is not None:
+                self.intelligence_view.shutdown()
             if getattr(self, "monitor", None) is not None:
-                self.monitor.stop_monitor()
-            if getattr(self, "remote_view", None) is not None and getattr(self.remote_view, "worker", None):
-                self.remote_view.disconnect()
+                if hasattr(self.monitor, "shutdown"):
+                    self.monitor.shutdown()
+                else:
+                    self.monitor.stop_monitor()
+            if getattr(self, "remote_view", None) is not None:
+                if hasattr(self.remote_view, "shutdown"):
+                    self.remote_view.shutdown()
+                elif getattr(self.remote_view, "worker", None):
+                    self.remote_view.disconnect()
+            for attr_name in ("sites_view", "topology_view", "inventory_view", "vlan_view", "backup_view", "audit_view"):
+                v_obj = getattr(self, attr_name, None)
+                if v_obj is not None and hasattr(v_obj, "shutdown"):
+                    v_obj.shutdown()
             if getattr(self, "alarm_manager", None) is not None:
                 self.alarm_manager.stop()
             if getattr(self, "tray_manager", None) is not None and getattr(self.tray_manager, "tray_icon", None):

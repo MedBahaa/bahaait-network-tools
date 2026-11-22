@@ -85,7 +85,7 @@ class SettingsView(QWidget):
         
         self.ssl_checkbox = QCheckBox(_("settings_ssl", "Disable SSL/TLS Certificate Security (Not recommended)"))
         self.ssl_checkbox.setCursor(Qt.PointingHandCursor)
-        self.ssl_checkbox.setChecked(self.config.get("disable_ssl", False) if self.config else False)
+        self.ssl_checkbox.setChecked(self.config.get("disable_ssl", True) if self.config else True)
         self.ssl_checkbox.stateChanged.connect(self.save_app_settings)
         app_layout.addWidget(self.ssl_checkbox)
         
@@ -1090,7 +1090,7 @@ class SettingsView(QWidget):
         try:
             # 1. Behavior & Security
             self.tray_checkbox.setChecked(self.config.get("minimize_to_tray", False))
-            self.ssl_checkbox.setChecked(self.config.get("disable_ssl", False))
+            self.ssl_checkbox.setChecked(self.config.get("disable_ssl", True))
             
             current_lang = self.config.get("language", "fr")
             idx = self.lang_combo.findData(current_lang)

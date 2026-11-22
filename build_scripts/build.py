@@ -49,12 +49,30 @@ def build():
         '--windowed',
         '--add-data=src/ui/styles.qss;ui', # Add QSS to bundle
         '--clean',
+        '--noconfirm',
         '--noupx',
     ]
     
     # Include icons and other assets
     args.append('--add-data=assets;assets')
     args.append('--add-data=src/assets;src/assets')
+    args.extend([
+        '--paths=src',
+        '--collect-submodules=pysnmp',
+        '--collect-submodules=pysnmpcrypto',
+        '--collect-data=pysnmp',
+        '--hidden-import=pyasn1',
+        '--hidden-import=pyqtgraph',
+        '--hidden-import=paramiko',
+        '--hidden-import=icmplib',
+        '--hidden-import=serial.tools.list_ports',
+        '--hidden-import=reportlab.graphics.shapes',
+        '--hidden-import=ui.widgets.topology_view',
+        '--hidden-import=ui.widgets.inventory_view',
+        '--hidden-import=ui.widgets.vlan_view',
+        '--hidden-import=ui.widgets.backup_view',
+        '--hidden-import=ui.widgets.audit_view',
+    ])
     if os.path.exists(os.path.join(os.path.dirname(__file__), "..", "assets", "app_icon.ico")):
         args.append('--icon=assets/app_icon.ico')
 

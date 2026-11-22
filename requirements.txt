@@ -11,3 +11,5 @@ supabase
 reportlab
 paramiko
 pyserial
+pysnmp
+pysnmpcrypto
