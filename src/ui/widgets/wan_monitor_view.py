@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.wan_monitor import WANMonitor
-from utils.i18n import _
+from utils.i18n import _, escape_qt_mnemonic
 
 
 _SEVERITY_COLORS = {
@@ -58,17 +58,18 @@ class _TargetStatusCard(QFrame):
 
     def __init__(self, title: str, initial_target: str = "—", parent=None):
         super().__init__(parent)
-        self.setObjectName("Card")
-        self.setMinimumHeight(104)
+        self.setObjectName("KpiCard")
+        self.setMinimumHeight(106)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(3)
 
         self.title_lbl = QLabel(title.upper())
         self.title_lbl.setAlignment(Qt.AlignCenter)
+        self.title_lbl.setWordWrap(True)
         self.title_lbl.setStyleSheet(
-            "font-size: 10px; font-weight: 700; color: #94A3B8; letter-spacing: 0.7px; margin-bottom: 0px;"
+            "font-size: 11px; font-weight: 700; color: #94A3B8; margin-bottom: 0px;"
         )
 
         self.target_lbl = QLabel(initial_target)
@@ -137,51 +138,55 @@ class WANMonitorView(QWidget):
         root.setContentsMargins(0, 12, 0, 0)
         root.setSpacing(10)
 
-        # ── Top Control Bar ──
+        # ── Top Control Bar (2 compact rows inside FilterBar so FR never overflows) ──
         ctrl_bar = QFrame()
-        ctrl_bar.setObjectName("Card")
-        ctrl_layout = QHBoxLayout(ctrl_bar)
-        ctrl_layout.setContentsMargins(14, 10, 14, 10)
-        ctrl_layout.setSpacing(10)
+        ctrl_bar.setObjectName("FilterBar")
+        ctrl_outer = QVBoxLayout(ctrl_bar)
+        ctrl_outer.setContentsMargins(14, 10, 14, 10)
+        ctrl_outer.setSpacing(8)
+
+        row_top = QHBoxLayout()
+        row_top.setSpacing(10)
 
         self.toggle_wan_btn = QPushButton(_("wan_btn_start_continuous", "Start Continuous WAN"))
         self.toggle_wan_btn.setObjectName("PrimaryButton")
-        self.toggle_wan_btn.setFixedHeight(34)
-        self.toggle_wan_btn.setStyleSheet("padding: 4px 16px;")
         self.toggle_wan_btn.setCursor(Qt.PointingHandCursor)
         self.toggle_wan_btn.clicked.connect(self.toggle_continuous_monitoring)
-        ctrl_layout.addWidget(self.toggle_wan_btn)
+        row_top.addWidget(self.toggle_wan_btn)
 
         self.run_btn = QPushButton(_("wan_btn_run", "Run WAN Check Now"))
         self.run_btn.setObjectName("SecondaryButton")
-        self.run_btn.setFixedHeight(34)
-        self.run_btn.setStyleSheet("padding: 4px 14px;")
         self.run_btn.setCursor(Qt.PointingHandCursor)
         self.run_btn.clicked.connect(self.run_manual_check)
-        ctrl_layout.addWidget(self.run_btn)
+        row_top.addWidget(self.run_btn)
+
+        row_top.addStretch()
+
+        self.status_pill = QLabel(_("wan_status_idle", "IDLE"))
+        self.status_pill.setAlignment(Qt.AlignCenter)
+        row_top.addWidget(self.status_pill)
+        ctrl_outer.addLayout(row_top)
+
+        row_opts = QHBoxLayout()
+        row_opts.setSpacing(12)
 
         int_lbl = QLabel(_("wan_interval_label", "Interval (s):"))
         int_lbl.setStyleSheet("color: #94A3B8; font-size: 12px; margin-bottom: 0px;")
-        ctrl_layout.addWidget(int_lbl)
+        row_opts.addWidget(int_lbl)
 
         self.interval_spin = QSpinBox()
         self.interval_spin.setRange(5, 300)
         self.interval_spin.setValue(max(5, min(300, int(interval_sec))))
         self.interval_spin.setMinimumWidth(90)
-        self.interval_spin.setFixedHeight(34)
         self.interval_spin.valueChanged.connect(self._on_interval_changed)
-        ctrl_layout.addWidget(self.interval_spin)
+        row_opts.addWidget(self.interval_spin)
 
-        self.secondary_chk = QCheckBox(_("wan_chk_secondary", "Include DNS & HTTPS Verification"))
+        self.secondary_chk = QCheckBox(escape_qt_mnemonic(_("wan_chk_secondary", "Include DNS & HTTPS Verification")))
         self.secondary_chk.setCursor(Qt.PointingHandCursor)
         self.secondary_chk.setChecked(True)
-        ctrl_layout.addWidget(self.secondary_chk)
-
-        ctrl_layout.addStretch()
-
-        self.status_pill = QLabel(_("wan_status_idle", "IDLE"))
-        self.status_pill.setAlignment(Qt.AlignCenter)
-        ctrl_layout.addWidget(self.status_pill)
+        row_opts.addWidget(self.secondary_chk)
+        row_opts.addStretch()
+        ctrl_outer.addLayout(row_opts)
 
         root.addWidget(ctrl_bar)
 
@@ -210,6 +215,7 @@ class WANMonitorView(QWidget):
         banner_top.setSpacing(10)
 
         self.verdict_title_lbl = QLabel(_("wan_banner_initial_title", "WAN Intelligence Ready"))
+        self.verdict_title_lbl.setWordWrap(True)
         self.verdict_title_lbl.setStyleSheet(
             "font-size: 18px; font-weight: 800; color: #FFFFFF; margin-bottom: 0px;"
         )
@@ -267,7 +273,7 @@ class WANMonitorView(QWidget):
         diag_row.setSpacing(10)
 
         ev_card = QFrame()
-        ev_card.setObjectName("Card")
+        ev_card.setObjectName("PanelCard")
         ev_layout = QVBoxLayout(ev_card)
         ev_layout.setContentsMargins(14, 12, 14, 12)
         ev_layout.setSpacing(6)
@@ -278,12 +284,12 @@ class WANMonitorView(QWidget):
         self.evidence_lbl.setWordWrap(True)
         self.evidence_lbl.setTextFormat(Qt.RichText)
         self.evidence_lbl.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        self.evidence_lbl.setStyleSheet("color: #CBD5E1; font-size: 12px; line-height: 1.4; margin-bottom: 0px;")
+        self.evidence_lbl.setStyleSheet("color: #CBD5E1; font-size: 12px; margin-bottom: 0px;")
         ev_layout.addWidget(ev_hdr)
         ev_layout.addWidget(self.evidence_lbl, 1)
 
         act_card = QFrame()
-        act_card.setObjectName("Card")
+        act_card.setObjectName("PanelCard")
         act_layout = QVBoxLayout(act_card)
         act_layout.setContentsMargins(14, 12, 14, 12)
         act_layout.setSpacing(6)
@@ -294,7 +300,7 @@ class WANMonitorView(QWidget):
         self.actions_lbl.setWordWrap(True)
         self.actions_lbl.setTextFormat(Qt.RichText)
         self.actions_lbl.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        self.actions_lbl.setStyleSheet("color: #CBD5E1; font-size: 12px; line-height: 1.4; margin-bottom: 0px;")
+        self.actions_lbl.setStyleSheet("color: #CBD5E1; font-size: 12px; margin-bottom: 0px;")
         act_layout.addWidget(act_hdr)
         act_layout.addWidget(self.actions_lbl, 1)
 
@@ -322,7 +328,9 @@ class WANMonitorView(QWidget):
         hdr = self.history_table.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.Stretch)
         hdr.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.history_table.verticalHeader().setDefaultSectionSize(34)
         self.history_table.verticalHeader().setVisible(False)
         self.history_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.history_table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -333,16 +341,21 @@ class WANMonitorView(QWidget):
             QTableWidget {
                 background-color: #1E293B;
                 alternate-background-color: #161E2D;
-                border: 1px solid rgba(255, 255, 255, 0.06);
+                border: 1px solid #334155;
                 border-radius: 12px;
-                gridline-color: transparent;
+                gridline-color: rgba(255, 255, 255, 0.04);
             }
             QTableWidget::item { padding: 4px 6px; }
+            QTableWidget::item:selected {
+                background-color: rgba(79, 70, 229, 0.35);
+                color: #FFFFFF;
+            }
             QHeaderView::section {
                 background-color: #0F172A;
-                padding: 6px;
-                font-weight: bold;
-                font-size: 10px;
+                padding: 7px 6px;
+                font-weight: 700;
+                font-size: 11px;
+                border-bottom: 1px solid #334155;
             }
         """)
         body_layout.addWidget(self.history_table, 1)
@@ -370,7 +383,10 @@ class WANMonitorView(QWidget):
             return
         self._continuous_active = True
         self.toggle_wan_btn.setText(_("wan_btn_stop_continuous", "Stop Continuous WAN"))
-        self.toggle_wan_btn.setStyleSheet("background-color: #F43F5E; padding: 4px 16px;")
+        self.toggle_wan_btn.setStyleSheet(
+            "QPushButton { background-color: #E11D48; color: #FFFFFF; padding: 7px 16px; border-radius: 10px; font-weight: 700; border: none; }"
+            "QPushButton:hover { background-color: #F43F5E; }"
+        )
         self._auto_timer.start(max(5, int(self.interval_spin.value())) * 1000)
         self._refresh_status_pill()
         self.continuous_toggled.emit(True)
@@ -381,7 +397,7 @@ class WANMonitorView(QWidget):
         was_active = self._continuous_active
         self._continuous_active = False
         self.toggle_wan_btn.setText(_("wan_btn_start_continuous", "Start Continuous WAN"))
-        self.toggle_wan_btn.setStyleSheet("padding: 4px 16px;")
+        self.toggle_wan_btn.setStyleSheet("")
         self._refresh_status_pill()
         if was_active:
             self.continuous_toggled.emit(False)
@@ -443,6 +459,10 @@ class WANMonitorView(QWidget):
         self._apply_banner_border("#F43F5E")
 
     def _on_worker_finished(self) -> None:
+        w = self._worker
+        self._worker = None
+        if w is not None:
+            w.deleteLater()
         self.run_btn.setEnabled(True)
         self.run_btn.setText(_("wan_btn_run", "Run WAN Check Now"))
         self._refresh_status_pill()
@@ -451,7 +471,7 @@ class WANMonitorView(QWidget):
         if stop_continuous:
             self.stop_continuous_monitoring()
         if self._worker is not None and self._worker.isRunning():
-            self._worker.wait(2500)
+            self._worker.wait(3000)
 
     def update_verdict(self, verdict: Dict[str, Any]) -> None:
         verdict_code = str(verdict.get("verdict_code", "HEALTHY"))
@@ -536,7 +556,7 @@ class WANMonitorView(QWidget):
 
         # Update Evidence & Actions
         ev_html = "<br/>".join(f"• {html.escape(str(item))}" for item in evidence) if evidence else "—"
-        act_html = "<br/>".join(f"➜ {html.escape(str(item))}" for item in actions) if actions else "—"
+        act_html = "<br/>".join(f"-> {html.escape(str(item))}" for item in actions) if actions else "—"
         self.evidence_lbl.setText(ev_html)
         self.actions_lbl.setText(act_html)
 

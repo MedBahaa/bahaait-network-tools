@@ -27,7 +27,7 @@ import requests
 from utils.i18n import _
 
 GITHUB_REPO = "MedBahaa/bahaait-network-tools"
-CURRENT_VERSION = "v3.6.0"
+CURRENT_VERSION = "v3.6.1"
 
 
 def _resolve_logo_path() -> str:

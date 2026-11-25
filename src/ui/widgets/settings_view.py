@@ -1,11 +1,16 @@
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                             QPushButton, QFrame, QCheckBox, QFileDialog, QMessageBox, QComboBox, QScrollArea, QLineEdit, QGridLayout, QTabWidget, QSpinBox)
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QPushButton, QFrame, QCheckBox, QFileDialog, QMessageBox,
+    QComboBox, QScrollArea, QLineEdit, QGridLayout, QTabWidget, QSpinBox,
+)
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QIntValidator
 import os
 import webbrowser
 import json
 from utils.cloud_sync import CloudSyncManager
-from utils.i18n import _
+from utils.config import get_obfuscated_credentials
+from utils.i18n import _, escape_qt_mnemonic
 from utils.db import DatabaseManager, Host
 
 class SettingsView(QWidget):
@@ -17,6 +22,7 @@ class SettingsView(QWidget):
         self.auth_manager = auth_manager
         self.cloud_sync = CloudSyncManager(auth_manager) if auth_manager else None
         self.db = DatabaseManager()
+        self.test_worker = None
         
         # Audio test states
         self.is_testing_sound = False
@@ -26,8 +32,8 @@ class SettingsView(QWidget):
         
         # Main layout
         self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(30, 30, 30, 30)
-        self.main_layout.setSpacing(20)
+        self.main_layout.setContentsMargins(28, 24, 28, 24)
+        self.main_layout.setSpacing(16)
         
         # Header
         header = QLabel(_("settings_title", "Global Settings"))
@@ -50,11 +56,11 @@ class SettingsView(QWidget):
             content_widget = QWidget()
             content_widget.setStyleSheet("background: transparent;")
             layout = QVBoxLayout(content_widget)
-            layout.setContentsMargins(0, 10, 10, 10)
-            layout.setSpacing(20)
+            layout.setContentsMargins(4, 12, 12, 12)
+            layout.setSpacing(18)
             
             scroll.setWidget(content_widget)
-            self.tabs.addTab(scroll, _(title_key, default_title))
+            self.tabs.addTab(scroll, escape_qt_mnemonic(_(title_key, default_title)))
             return layout
             
         tab1_layout = create_tab("settings_tab_general", "General")
@@ -68,10 +74,10 @@ class SettingsView(QWidget):
         
         # 1. Behavior & Security Card
         app_card = QFrame()
-        app_card.setObjectName("Card")
+        app_card.setObjectName("PanelCard")
         app_layout = QVBoxLayout(app_card)
         app_layout.setContentsMargins(22, 22, 22, 22)
-        app_layout.setSpacing(15)
+        app_layout.setSpacing(14)
         
         sec_header1 = QLabel(_("settings_behavior", "Behavior & Security"))
         sec_header1.setObjectName("SectionHeader")
@@ -79,13 +85,14 @@ class SettingsView(QWidget):
         
         self.tray_checkbox = QCheckBox(_("settings_minimize", "Minimize to System Tray on close (Ghost Mode)"))
         self.tray_checkbox.setCursor(Qt.PointingHandCursor)
-        self.tray_checkbox.setChecked(self.config.get("minimize_to_tray", False) if self.config else False)
+        self.tray_checkbox.setChecked(bool(self.config.get("minimize_to_tray", False)) if self.config else False)
         self.tray_checkbox.stateChanged.connect(self.save_app_settings)
         app_layout.addWidget(self.tray_checkbox)
         
         self.ssl_checkbox = QCheckBox(_("settings_ssl", "Disable SSL/TLS Certificate Security (Not recommended)"))
         self.ssl_checkbox.setCursor(Qt.PointingHandCursor)
-        self.ssl_checkbox.setChecked(self.config.get("disable_ssl", True) if self.config else True)
+        ssl_default = True if self.config is None else self.config.get("disable_ssl", True)
+        self.ssl_checkbox.setChecked(True if ssl_default is None else bool(ssl_default))
         self.ssl_checkbox.stateChanged.connect(self.save_app_settings)
         app_layout.addWidget(self.ssl_checkbox)
         
@@ -143,14 +150,17 @@ class SettingsView(QWidget):
         self.update_btn.setObjectName("SecondaryButton")
         self.update_btn.setCursor(Qt.PointingHandCursor)
         self.update_btn.clicked.connect(self.check_updates_manually)
-        app_layout.addWidget(self.update_btn)
+        upd_row = QHBoxLayout()
+        upd_row.addWidget(self.update_btn)
+        upd_row.addStretch()
+        app_layout.addLayout(upd_row)
         
         tab1_layout.addWidget(app_card)
         tab1_layout.addStretch()
         
         # 1b. Backup & Restore Card
         backup_card = QFrame()
-        backup_card.setObjectName("Card")
+        backup_card.setObjectName("PanelCard")
         backup_layout = QVBoxLayout(backup_card)
         backup_layout.setContentsMargins(22, 22, 22, 22)
         backup_layout.setSpacing(15)
@@ -186,7 +196,7 @@ class SettingsView(QWidget):
         
         # 2. Alert Notifications Card
         alarm_card = QFrame()
-        alarm_card.setObjectName("Card")
+        alarm_card.setObjectName("PanelCard")
         alarm_layout = QVBoxLayout(alarm_card)
         alarm_layout.setContentsMargins(22, 22, 22, 22)
         alarm_layout.setSpacing(15)
@@ -197,7 +207,8 @@ class SettingsView(QWidget):
         
         self.mute_checkbox = QCheckBox(_("settings_alarm_enable", "Enable audio alarm for Down hosts"))
         self.mute_checkbox.setCursor(Qt.PointingHandCursor)
-        alarm_enabled = self.config.get("alarm_enabled") if self.config else True
+        raw_alarm = self.config.get("alarm_enabled", True) if self.config else True
+        alarm_enabled = True if raw_alarm is None else bool(raw_alarm)
         self.mute_checkbox.setChecked(alarm_enabled)
         self.mute_checkbox.stateChanged.connect(self.save_alarm_enabled)
         alarm_layout.addWidget(self.mute_checkbox)
@@ -234,7 +245,7 @@ class SettingsView(QWidget):
         
         # 2b. Email Alert Settings Card
         email_card = QFrame()
-        email_card.setObjectName("Card")
+        email_card.setObjectName("PanelCard")
         email_layout = QVBoxLayout(email_card)
         email_layout.setContentsMargins(22, 22, 22, 22)
         email_layout.setSpacing(15)
@@ -245,7 +256,7 @@ class SettingsView(QWidget):
         
         self.email_checkbox = QCheckBox(_("settings_email_enable", "Enable Email Alerts"))
         self.email_checkbox.setCursor(Qt.PointingHandCursor)
-        email_enabled = self.config.get("email_alerts_enabled") if self.config else False
+        email_enabled = bool(self.config.get("email_alerts_enabled", False)) if self.config else False
         self.email_checkbox.setChecked(email_enabled)
         email_layout.addWidget(self.email_checkbox)
         
@@ -256,14 +267,14 @@ class SettingsView(QWidget):
 
         self.email_on_down_checkbox = QCheckBox(_("settings_email_on_down", "Alert when a device goes DOWN"))
         self.email_on_down_checkbox.setCursor(Qt.PointingHandCursor)
-        email_on_down_enabled = self.config.get("email_alert_on_down", True) if self.config else True
-        self.email_on_down_checkbox.setChecked(email_on_down_enabled)
+        raw_down = self.config.get("email_alert_on_down", True) if self.config else True
+        self.email_on_down_checkbox.setChecked(True if raw_down is None else bool(raw_down))
         filters_layout.addWidget(self.email_on_down_checkbox)
 
         self.email_on_up_checkbox = QCheckBox(_("settings_email_on_up", "Alert when a device goes UP (Recovery)"))
         self.email_on_up_checkbox.setCursor(Qt.PointingHandCursor)
-        email_on_up_enabled = self.config.get("email_alert_on_up", True) if self.config else True
-        self.email_on_up_checkbox.setChecked(email_on_up_enabled)
+        raw_up = self.config.get("email_alert_on_up", True) if self.config else True
+        self.email_on_up_checkbox.setChecked(True if raw_up is None else bool(raw_up))
         filters_layout.addWidget(self.email_on_up_checkbox)
 
         # Consecutive Failures setting (indented under DOWN checkbox)
@@ -274,11 +285,10 @@ class SettingsView(QWidget):
         self.consecutive_label.setStyleSheet("color: #E2E8F0; font-size: 13px;")
         
         self.consecutive_input = QLineEdit()
-        self.consecutive_input.setFixedWidth(60)
-        from PySide6.QtGui import QIntValidator
-        self.consecutive_input.setValidator(QIntValidator(1, 999))
+        self.consecutive_input.setFixedWidth(64)
+        self.consecutive_input.setValidator(QIntValidator(1, 999, self))
         threshold_val = self.config.get("email_consecutive_down_threshold", 1) if self.config else 1
-        self.consecutive_input.setText(str(threshold_val))
+        self.consecutive_input.setText(str(threshold_val if threshold_val is not None else 1))
         
         self.consecutive_suffix = QLabel(_("settings_email_checks_suffix", "timeout"))
         self.consecutive_suffix.setStyleSheet("color: #E2E8F0; font-size: 13px;")
@@ -302,7 +312,7 @@ class SettingsView(QWidget):
         self.smtp_type_combo.addItem(_("settings_email_smtp_type_default", "Default (BahaaIT Server)"), "default")
         self.smtp_type_combo.addItem(_("settings_email_smtp_type_custom", "Custom SMTP Server"), "custom")
         
-        use_custom_saved = self.config.get("email_use_custom_smtp", False) if self.config else False
+        use_custom_saved = bool(self.config.get("email_use_custom_smtp", False)) if self.config else False
         self.smtp_type_combo.setCurrentIndex(1 if use_custom_saved else 0)
         
         type_layout.addWidget(smtp_type_label)
@@ -310,8 +320,8 @@ class SettingsView(QWidget):
         email_layout.addLayout(type_layout)
         
         # Main form master container (recipient + custom SMTP)
-        form_master = QWidget()
-        form_master_layout = QVBoxLayout(form_master)
+        self.form_master = QWidget()
+        form_master_layout = QVBoxLayout(self.form_master)
         form_master_layout.setContentsMargins(0, 0, 0, 0)
         form_master_layout.setSpacing(15)
         
@@ -322,6 +332,7 @@ class SettingsView(QWidget):
         recipient_layout.setSpacing(5)
         recipient_label = QLabel(_("settings_email_recipient", "Recipient Email:"))
         self.email_recipient_input = QLineEdit()
+        self.email_recipient_input.setPlaceholderText("alerts@company.com")
         self.email_recipient_input.setText(self.config.get("email_recipient", "bahaaitnetworktools@gmail.com") if self.config else "")
         recipient_layout.addWidget(recipient_label)
         recipient_layout.addWidget(self.email_recipient_input)
@@ -332,30 +343,31 @@ class SettingsView(QWidget):
         custom_layout = QGridLayout(self.custom_smtp_container)
         custom_layout.setContentsMargins(0, 0, 0, 0)
         custom_layout.setSpacing(10)
+        custom_layout.setColumnStretch(0, 1)
         
         # SMTP Host
         host_label = QLabel(_("settings_email_smtp_host", "SMTP Server:"))
         self.smtp_host_input = QLineEdit()
         self.smtp_host_input.setPlaceholderText("smtp.example.com")
         
-        default_email = "bahaaitnetworktools@gmail.com"
-        default_password = "rgsrodggtfbpshaj"
+        default_email, default_password = get_obfuscated_credentials()
         default_host = "smtp.gmail.com"
         
         host_val = self.config.get("email_smtp_host", "") if self.config else ""
         if host_val == default_host:
             host_val = ""
-        self.smtp_host_input.setText(host_val)
+        self.smtp_host_input.setText(host_val or "")
         
         # SMTP Port
         port_label = QLabel(_("settings_email_smtp_port", "SMTP Port:"))
         self.smtp_port_input = QLineEdit()
         self.smtp_port_input.setPlaceholderText("465")
+        self.smtp_port_input.setValidator(QIntValidator(1, 65535, self))
         saved_port = self.config.get("email_smtp_port", "") if self.config else ""
         if str(saved_port) == "465" and not host_val:
             saved_port = ""
-        self.smtp_port_input.setText(str(saved_port))
-        self.smtp_port_input.setFixedWidth(85)
+        self.smtp_port_input.setText(str(saved_port or ""))
+        self.smtp_port_input.setFixedWidth(90)
         
         # SMTP User
         user_label = QLabel(_("settings_email_smtp_user", "SMTP Username (Email):"))
@@ -364,14 +376,14 @@ class SettingsView(QWidget):
         user_val = self.config.get("email_smtp_user", "") if self.config else ""
         if user_val == default_email:
             user_val = ""
-        self.smtp_user_input.setText(user_val)
+        self.smtp_user_input.setText(user_val or "")
         
         # SMTP Password
         pass_label = QLabel(_("settings_email_smtp_password", "SMTP Password (App Password):"))
         pass_widget = QWidget()
         pass_h_layout = QHBoxLayout(pass_widget)
         pass_h_layout.setContentsMargins(0, 0, 0, 0)
-        pass_h_layout.setSpacing(5)
+        pass_h_layout.setSpacing(6)
         
         self.smtp_pass_input = QLineEdit()
         self.smtp_pass_input.setEchoMode(QLineEdit.Password)
@@ -379,13 +391,14 @@ class SettingsView(QWidget):
         pass_val = self.config.get("email_smtp_password", "") if self.config else ""
         if pass_val == default_password:
             pass_val = ""
-        self.smtp_pass_input.setText(pass_val)
+        self.smtp_pass_input.setText(pass_val or "")
         
-        # Eye button to show/hide password
-        self.toggle_pass_btn = QPushButton("👁")
-        self.toggle_pass_btn.setFixedSize(35, 35)
+        # Show/Hide button for password
+        self.toggle_pass_btn = QPushButton("Show")
+        self.toggle_pass_btn.setObjectName("SecondaryButton")
+        self.toggle_pass_btn.setMinimumHeight(34)
+        self.toggle_pass_btn.setMinimumWidth(68)
         self.toggle_pass_btn.setCursor(Qt.PointingHandCursor)
-        self.toggle_pass_btn.setStyleSheet("background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; font-size: 14px; color: #94A3B8;")
         self.toggle_pass_btn.clicked.connect(self.toggle_password_visibility)
         
         # Sender Email
@@ -395,7 +408,7 @@ class SettingsView(QWidget):
         sender_val = self.config.get("email_sender", "") if self.config else ""
         if sender_val == default_email:
             sender_val = ""
-        self.email_sender_input.setText(sender_val)
+        self.email_sender_input.setText(sender_val or "")
         
         # Grid layout placement
         custom_layout.addWidget(host_label, 0, 0)
@@ -405,14 +418,14 @@ class SettingsView(QWidget):
         custom_layout.addWidget(user_label, 2, 0, 1, 2)
         custom_layout.addWidget(self.smtp_user_input, 3, 0, 1, 2)
         custom_layout.addWidget(pass_label, 4, 0, 1, 2)
-        pass_h_layout.addWidget(self.smtp_pass_input)
+        pass_h_layout.addWidget(self.smtp_pass_input, 1)
         pass_h_layout.addWidget(self.toggle_pass_btn)
         custom_layout.addWidget(pass_widget, 5, 0, 1, 2)
-        custom_layout.addWidget(sender_label, 6, 0)
-        custom_layout.addWidget(self.email_sender_input, 7, 0)
+        custom_layout.addWidget(sender_label, 6, 0, 1, 2)
+        custom_layout.addWidget(self.email_sender_input, 7, 0, 1, 2)
         
         form_master_layout.addWidget(self.custom_smtp_container)
-        email_layout.addWidget(form_master)
+        email_layout.addWidget(self.form_master)
         
         # Toggle visibility logic for custom SMTP fields
         def toggle_smtp_fields():
@@ -420,26 +433,11 @@ class SettingsView(QWidget):
             self.custom_smtp_container.setVisible(is_custom)
             
         self.smtp_type_combo.currentIndexChanged.connect(toggle_smtp_fields)
-        toggle_smtp_fields() # Initial trigger
+        toggle_smtp_fields()
         
-        # Enable state connections
-        def update_form_enabled_state():
-            is_enabled = self.email_checkbox.isChecked()
-            self.email_on_down_checkbox.setEnabled(is_enabled)
-            self.email_on_up_checkbox.setEnabled(is_enabled)
-            
-            # Enable consecutive fields only if email alerts are on and DOWN alerts are enabled
-            is_down_enabled = is_enabled and self.email_on_down_checkbox.isChecked()
-            self.consecutive_input.setEnabled(is_down_enabled)
-            self.consecutive_label.setEnabled(is_down_enabled)
-            self.consecutive_suffix.setEnabled(is_down_enabled)
-            
-            self.smtp_type_combo.setEnabled(is_enabled)
-            form_master.setEnabled(is_enabled)
-            
-        self.email_checkbox.stateChanged.connect(update_form_enabled_state)
-        self.email_on_down_checkbox.stateChanged.connect(update_form_enabled_state)
-        update_form_enabled_state()
+        self.email_checkbox.stateChanged.connect(self._update_email_form_state)
+        self.email_on_down_checkbox.stateChanged.connect(self._update_email_form_state)
+        self._update_email_form_state()
         
         # Buttons layout
         btn_layout = QHBoxLayout()
@@ -469,7 +467,7 @@ class SettingsView(QWidget):
         
         # 3. Network Engine Status Card
         driver_frame = QFrame()
-        driver_frame.setObjectName("Card")
+        driver_frame.setObjectName("PanelCard")
         driver_layout = QVBoxLayout(driver_frame)
         driver_layout.setContentsMargins(22, 22, 22, 22)
         driver_layout.setSpacing(15)
@@ -507,7 +505,7 @@ class SettingsView(QWidget):
         
         # 4. Storage & Maintenance Card
         maint_card = QFrame()
-        maint_card.setObjectName("Card")
+        maint_card.setObjectName("PanelCard")
         maint_layout = QVBoxLayout(maint_card)
         maint_layout.setContentsMargins(22, 22, 22, 22)
         maint_layout.setSpacing(15)
@@ -517,6 +515,7 @@ class SettingsView(QWidget):
         maint_layout.addWidget(sec_header5)
 
         maint_desc = QLabel(_("settings_maintenance_desc", "Manage your local application data files (logs and database)."))
+        maint_desc.setWordWrap(True)
         maint_desc.setStyleSheet("color: #94A3B8; font-size: 12px;")
         maint_layout.addWidget(maint_desc)
 
@@ -541,7 +540,7 @@ class SettingsView(QWidget):
         
         # 5. Cloud Sync Card
         sync_card = QFrame()
-        sync_card.setObjectName("Card")
+        sync_card.setObjectName("PanelCard")
         sync_layout = QVBoxLayout(sync_card)
         sync_layout.setContentsMargins(22, 22, 22, 22)
         sync_layout.setSpacing(15)
@@ -551,6 +550,7 @@ class SettingsView(QWidget):
         sync_layout.addWidget(sec_header4)
 
         self.sync_status_label = QLabel()
+        self.sync_status_label.setWordWrap(True)
         self.sync_status_label.setStyleSheet("font-size: 13px;")
         sync_layout.addWidget(self.sync_status_label)
 
@@ -590,6 +590,20 @@ class SettingsView(QWidget):
         self.update_cloud_ui()
         self.load_settings_to_ui()
 
+    def _update_email_form_state(self):
+        is_enabled = self.email_checkbox.isChecked()
+        self.email_on_down_checkbox.setEnabled(is_enabled)
+        self.email_on_up_checkbox.setEnabled(is_enabled)
+
+        # Enable consecutive fields only if email alerts are on and DOWN alerts are enabled
+        is_down_enabled = is_enabled and self.email_on_down_checkbox.isChecked()
+        self.consecutive_input.setEnabled(is_down_enabled)
+        self.consecutive_label.setEnabled(is_down_enabled)
+        self.consecutive_suffix.setEnabled(is_down_enabled)
+
+        self.smtp_type_combo.setEnabled(is_enabled)
+        self.form_master.setEnabled(is_enabled)
+
     def showEvent(self, event):
         super().showEvent(event)
         self.update_cloud_ui()
@@ -622,15 +636,14 @@ class SettingsView(QWidget):
             self.logger.error(f"Failed to toggle auto-start: {e}")
 
     def check_npcap_status(self):
-        import os
         has_npcap = os.path.exists(r"C:\Windows\System32\wpcap.dll") or os.path.exists(r"C:\Windows\SysWOW64\wpcap.dll")
         
         if has_npcap:
-            self.npcap_status_label.setText("✅ <b>" + _("settings_npcap_found", "Npcap driver is installed on this system.") + "</b>")
+            self.npcap_status_label.setText("<b>" + _("settings_npcap_found", "Npcap driver is installed on this system.") + "</b>")
             self.npcap_status_label.setStyleSheet("color: #10B981; font-size: 13px;")
             self.npcap_download_btn.setVisible(False)
         else:
-            self.npcap_status_label.setText("⚠️ <b>" + _("settings_npcap_missing", "Npcap driver is missing. LAN/ARP scanning will not work.") + "</b>")
+            self.npcap_status_label.setText("<b>" + _("settings_npcap_missing", "Npcap driver is missing. LAN/ARP scanning will not work.") + "</b>")
             self.npcap_status_label.setStyleSheet("color: #F43F5E; font-size: 13px;")
             self.npcap_download_btn.setVisible(True)
 
@@ -654,9 +667,10 @@ class SettingsView(QWidget):
         self.alarm_manager.play()
         self.is_testing_sound = True
         
-        # Change button text to stop symbol/text
-        self.test_sound_btn.setText("■ " + _("btn_cancel", "Cancel"))
-        self.test_sound_btn.setStyleSheet("color: #F43F5E; border: 1px solid #F43F5E;")
+        self.test_sound_btn.setText(_("btn_stop", "Stop"))
+        self.test_sound_btn.setObjectName("DangerButton")
+        self.test_sound_btn.style().unpolish(self.test_sound_btn)
+        self.test_sound_btn.style().polish(self.test_sound_btn)
         
         # Automatically stop sound after 3 seconds
         self.test_sound_timer.start(3000)
@@ -674,7 +688,9 @@ class SettingsView(QWidget):
             
         self.is_testing_sound = False
         self.test_sound_btn.setText(_("settings_alarm_play", "Test sound"))
-        self.test_sound_btn.setStyleSheet("") # Clear custom red style to revert to secondary button
+        self.test_sound_btn.setObjectName("SecondaryButton")
+        self.test_sound_btn.style().unpolish(self.test_sound_btn)
+        self.test_sound_btn.style().polish(self.test_sound_btn)
 
     def update_cloud_ui(self):
         if self.auth_manager and self.auth_manager.is_authenticated():
@@ -781,9 +797,15 @@ class SettingsView(QWidget):
         self.update_btn.setText(_("settings_update_checking", "Checking..."))
         self.update_btn.setEnabled(False)
         
-        self.updater = AutoUpdater(self)
-        self.updater.finished.connect(self.on_update_check_finished)
-        self.updater.check_for_updates(silent=False)
+        try:
+            self.updater = AutoUpdater(self)
+            self.updater.finished.connect(self.on_update_check_finished)
+            self.updater.check_for_updates(silent=False)
+        except Exception as exc:
+            self.on_update_check_finished()
+            if self.logger:
+                self.logger.error(f"Update check failed: {exc}")
+            QMessageBox.warning(self, _("msg_warning", "Warning"), f"Unable to check for updates:\n{exc}")
 
     def on_update_check_finished(self):
         self.update_btn.setText(_("settings_check_update", "Check for Updates"))
@@ -812,10 +834,10 @@ class SettingsView(QWidget):
     def toggle_password_visibility(self):
         if self.smtp_pass_input.echoMode() == QLineEdit.Password:
             self.smtp_pass_input.setEchoMode(QLineEdit.Normal)
-            self.toggle_pass_btn.setText("🔒")
+            self.toggle_pass_btn.setText("Hide")
         else:
             self.smtp_pass_input.setEchoMode(QLineEdit.Password)
-            self.toggle_pass_btn.setText("👁")
+            self.toggle_pass_btn.setText("Show")
 
     def save_email_settings(self):
         if self.config:
@@ -1036,7 +1058,10 @@ class SettingsView(QWidget):
             reply = QMessageBox.question(
                 self,
                 _("msg_success", "Success"),
-                _("settings_backup_import_success", "Backup imported successfully. Would you like to restart the application now to apply all changes?"),
+                _(
+                    "settings_backup_import_restart_q",
+                    "Backup imported successfully.\nWould you like to restart the application now to apply all changes?",
+                ),
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.Yes
             )
@@ -1089,8 +1114,9 @@ class SettingsView(QWidget):
         
         try:
             # 1. Behavior & Security
-            self.tray_checkbox.setChecked(self.config.get("minimize_to_tray", False))
-            self.ssl_checkbox.setChecked(self.config.get("disable_ssl", True))
+            self.tray_checkbox.setChecked(bool(self.config.get("minimize_to_tray", False)))
+            raw_ssl = self.config.get("disable_ssl", True)
+            self.ssl_checkbox.setChecked(True if raw_ssl is None else bool(raw_ssl))
             
             current_lang = self.config.get("language", "fr")
             idx = self.lang_combo.findData(current_lang)
@@ -1111,26 +1137,33 @@ class SettingsView(QWidget):
                 pass
             self.autostart_checkbox.setChecked(is_autostart)
             
-            # 2. Alarm Enabled
-            alarm_enabled = self.config.get("alarm_enabled", True)
-            self.mute_checkbox.setChecked(alarm_enabled)
+            # 2. Alarm Enabled & Custom Sound Label
+            raw_alarm = self.config.get("alarm_enabled", True)
+            self.mute_checkbox.setChecked(True if raw_alarm is None else bool(raw_alarm))
+            saved_sound = self.config.get("alarm_sound")
+            if saved_sound:
+                self.sound_label.setText(f"{_('settings_alarm_sound', 'Custom Alarm Sound (.wav)')}: {os.path.basename(saved_sound)}")
+            else:
+                self.sound_label.setText(_("settings_alarm_sound", "Custom Alarm Sound (.wav)") + ": Default")
             
             # 3. Email Settings
-            self.email_checkbox.setChecked(self.config.get("email_alerts_enabled", False))
-            self.email_on_down_checkbox.setChecked(self.config.get("email_alert_on_down", True))
-            self.email_on_up_checkbox.setChecked(self.config.get("email_alert_on_up", True))
-            self.consecutive_input.setText(str(self.config.get("email_consecutive_down_threshold", 1)))
+            self.email_checkbox.setChecked(bool(self.config.get("email_alerts_enabled", False)))
+            raw_down = self.config.get("email_alert_on_down", True)
+            self.email_on_down_checkbox.setChecked(True if raw_down is None else bool(raw_down))
+            raw_up = self.config.get("email_alert_on_up", True)
+            self.email_on_up_checkbox.setChecked(True if raw_up is None else bool(raw_up))
+            thresh = self.config.get("email_consecutive_down_threshold", 1)
+            self.consecutive_input.setText(str(thresh if thresh is not None else 1))
             
-            use_custom_saved = self.config.get("email_use_custom_smtp", False)
+            use_custom_saved = bool(self.config.get("email_use_custom_smtp", False))
             self.smtp_type_combo.setCurrentIndex(1 if use_custom_saved else 0)
-            self.email_recipient_input.setText(self.config.get("email_recipient", "bahaaitnetworktools@gmail.com"))
+            self.email_recipient_input.setText(self.config.get("email_recipient", "bahaaitnetworktools@gmail.com") or "")
             
-            # SMTP Fields
-            default_email = "bahaaitnetworktools@gmail.com"
-            default_password = "rgsrodggtfbpshaj"
+            # SMTP Fields (never keep hardcoded defaults in clear)
+            default_email, default_password = get_obfuscated_credentials()
             default_host = "smtp.gmail.com"
             
-            host_val = self.config.get("email_smtp_host", "")
+            host_val = self.config.get("email_smtp_host", "") or ""
             if host_val == default_host:
                 host_val = ""
             self.smtp_host_input.setText(host_val)
@@ -1138,26 +1171,25 @@ class SettingsView(QWidget):
             saved_port = self.config.get("email_smtp_port", "")
             if str(saved_port) == "465" and not host_val:
                 saved_port = ""
-            self.smtp_port_input.setText(str(saved_port))
+            self.smtp_port_input.setText(str(saved_port or ""))
             
-            user_val = self.config.get("email_smtp_user", "")
+            user_val = self.config.get("email_smtp_user", "") or ""
             if user_val == default_email:
                 user_val = ""
             self.smtp_user_input.setText(user_val)
             
-            pass_val = self.config.get("email_smtp_password", "")
+            pass_val = self.config.get("email_smtp_password", "") or ""
             if pass_val == default_password:
                 pass_val = ""
             self.smtp_pass_input.setText(pass_val)
             
-            sender_val = self.config.get("email_sender", "")
+            sender_val = self.config.get("email_sender", "") or ""
             if sender_val == default_email:
                 sender_val = ""
             self.email_sender_input.setText(sender_val)
             
-            # Force trigger update on custom fields visibility
-            is_custom = use_custom_saved
-            self.custom_smtp_container.setVisible(is_custom)
+            self.custom_smtp_container.setVisible(use_custom_saved)
+            self._update_email_form_state()
             
         finally:
             # Unblock signals
@@ -1170,3 +1202,11 @@ class SettingsView(QWidget):
             self.email_on_down_checkbox.blockSignals(False)
             self.email_on_up_checkbox.blockSignals(False)
             self.smtp_type_combo.blockSignals(False)
+
+    def shutdown(self):
+        self.test_sound_timer.stop()
+        if self.is_testing_sound:
+            self.stop_sound_test()
+        if getattr(self, "test_worker", None) and self.test_worker.isRunning():
+            self.test_worker.quit()
+            self.test_worker.wait(2000)

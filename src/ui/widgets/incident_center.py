@@ -6,7 +6,9 @@ from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
+    QDialog,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
@@ -15,6 +17,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -36,12 +39,18 @@ class IncidentCenterWidget(QWidget):
         self.db = db
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 12, 0, 0)
-        layout.setSpacing(12)
+        layout.setContentsMargins(0, 10, 0, 0)
+        layout.setSpacing(10)
 
-        # Filter Toolbar
+        # Two-Row Filter & Export Toolbar inside dark FilterBar
+        toolbar_frame = QFrame()
+        toolbar_frame.setObjectName("FilterBar")
+        toolbar_v = QVBoxLayout(toolbar_frame)
+        toolbar_v.setContentsMargins(12, 8, 12, 8)
+        toolbar_v.setSpacing(8)
+
         filters_row = QHBoxLayout()
-        filters_row.setSpacing(10)
+        filters_row.setSpacing(8)
 
         filters_row.addWidget(QLabel(_("inc_filter_severity", "Severity:")))
         self.severity_combo = QComboBox()
@@ -49,7 +58,7 @@ class IncidentCenterWidget(QWidget):
         for sev in ("CRITICAL", "WARNING", "INFO"):
             self.severity_combo.addItem(sev, sev)
         self.severity_combo.currentIndexChanged.connect(self.refresh_incidents)
-        filters_row.addWidget(self.severity_combo)
+        filters_row.addWidget(self.severity_combo, 1)
 
         filters_row.addWidget(QLabel(_("inc_filter_status", "Status:")))
         self.status_combo = QComboBox()
@@ -62,13 +71,13 @@ class IncidentCenterWidget(QWidget):
         ):
             self.status_combo.addItem(st, st)
         self.status_combo.currentIndexChanged.connect(self.refresh_incidents)
-        filters_row.addWidget(self.status_combo)
+        filters_row.addWidget(self.status_combo, 1)
 
         filters_row.addWidget(QLabel(_("inc_filter_host", "Host:")))
         self.host_combo = QComboBox()
         self.host_combo.setMinimumWidth(140)
         self.host_combo.currentIndexChanged.connect(self.refresh_incidents)
-        filters_row.addWidget(self.host_combo)
+        filters_row.addWidget(self.host_combo, 2)
 
         filters_row.addWidget(QLabel(_("inc_filter_date", "Period:")))
         self.date_combo = QComboBox()
@@ -77,32 +86,34 @@ class IncidentCenterWidget(QWidget):
         self.date_combo.addItem(_("inc_date_7d", "Last 7 Days"), 7)
         self.date_combo.addItem(_("inc_date_30d", "Last 30 Days"), 30)
         self.date_combo.currentIndexChanged.connect(self.refresh_incidents)
-        filters_row.addWidget(self.date_combo)
+        filters_row.addWidget(self.date_combo, 1)
 
-        filters_row.addStretch()
+        toolbar_v.addLayout(filters_row)
+
+        tools_row = QHBoxLayout()
+        tools_row.setSpacing(8)
+        tools_row.addStretch()
 
         self.refresh_btn = QPushButton(_("inc_btn_refresh", "Refresh"))
         self.refresh_btn.setObjectName("SecondaryButton")
-        self.refresh_btn.setFixedHeight(34)
         self.refresh_btn.setCursor(Qt.PointingHandCursor)
         self.refresh_btn.clicked.connect(self.refresh_incidents)
-        filters_row.addWidget(self.refresh_btn)
+        tools_row.addWidget(self.refresh_btn)
 
         self.export_csv_btn = QPushButton(_("inc_btn_export_csv", "Export CSV"))
         self.export_csv_btn.setObjectName("SecondaryButton")
-        self.export_csv_btn.setFixedHeight(34)
         self.export_csv_btn.setCursor(Qt.PointingHandCursor)
         self.export_csv_btn.clicked.connect(self.export_csv)
-        filters_row.addWidget(self.export_csv_btn)
+        tools_row.addWidget(self.export_csv_btn)
 
         self.export_pdf_btn = QPushButton(_("inc_btn_export_pdf", "Export PDF"))
         self.export_pdf_btn.setObjectName("SecondaryButton")
-        self.export_pdf_btn.setFixedHeight(34)
         self.export_pdf_btn.setCursor(Qt.PointingHandCursor)
         self.export_pdf_btn.clicked.connect(self.export_pdf)
-        filters_row.addWidget(self.export_pdf_btn)
+        tools_row.addWidget(self.export_pdf_btn)
 
-        layout.addLayout(filters_row)
+        toolbar_v.addLayout(tools_row)
+        layout.addWidget(toolbar_frame)
 
         # Incident Table (10 columns)
         self.table = QTableWidget(0, 10)
@@ -118,13 +129,16 @@ class IncidentCenterWidget(QWidget):
             _("inc_col_loss", "Loss %").upper(),
             _("inc_col_comments", "Comments").upper(),
         ])
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(8, QHeaderView.ResizeToContents)
-        self.table.verticalHeader().setDefaultSectionSize(42)
+        hdr = self.table.horizontalHeader()
+        hdr.setSectionResizeMode(QHeaderView.Stretch)
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(6, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(7, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(8, QHeaderView.ResizeToContents)
+        self.table.verticalHeader().setDefaultSectionSize(38)
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -134,21 +148,25 @@ class IncidentCenterWidget(QWidget):
             QTableWidget {
                 background-color: #1E293B;
                 alternate-background-color: #161E2D;
-                border: 1px solid rgba(255, 255, 255, 0.05);
+                border: 1px solid #334155;
                 border-radius: 12px;
-                gridline-color: transparent;
+                gridline-color: rgba(255, 255, 255, 0.04);
             }
             QTableWidget::item {
                 padding-left: 8px;
                 padding-right: 8px;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+                border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            }
+            QTableWidget::item:selected {
+                background-color: rgba(79, 70, 229, 0.35);
+                color: #FFFFFF;
             }
             QHeaderView::section {
                 background-color: #0F172A;
-                padding: 8px;
-                font-weight: bold;
+                padding: 8px 6px;
+                font-weight: 700;
                 font-size: 11px;
-                letter-spacing: 0.8px;
+                border-bottom: 1px solid #334155;
             }
         """)
         self.table.doubleClicked.connect(self.view_selected_details)
@@ -160,32 +178,26 @@ class IncidentCenterWidget(QWidget):
 
         self.ack_btn = QPushButton(_("inc_btn_ack", "Acknowledge"))
         self.ack_btn.setObjectName("PrimaryButton")
-        self.ack_btn.setFixedHeight(36)
         self.ack_btn.setCursor(Qt.PointingHandCursor)
         self.ack_btn.clicked.connect(self.acknowledge_selected)
 
         self.comment_btn = QPushButton(_("inc_btn_comment", "Add Comment"))
         self.comment_btn.setObjectName("SecondaryButton")
-        self.comment_btn.setFixedHeight(36)
         self.comment_btn.setCursor(Qt.PointingHandCursor)
         self.comment_btn.clicked.connect(self.comment_selected)
 
         self.close_btn = QPushButton(_("inc_btn_close", "Close Incident"))
         self.close_btn.setObjectName("SecondaryButton")
-        self.close_btn.setFixedHeight(36)
         self.close_btn.setCursor(Qt.PointingHandCursor)
         self.close_btn.clicked.connect(self.close_selected)
 
         self.details_btn = QPushButton(_("inc_btn_details", "Details"))
         self.details_btn.setObjectName("SecondaryButton")
-        self.details_btn.setFixedHeight(36)
         self.details_btn.setCursor(Qt.PointingHandCursor)
         self.details_btn.clicked.connect(self.view_selected_details)
 
         self.delete_btn = QPushButton(_("inc_btn_delete", "Delete Incident"))
         self.delete_btn.setObjectName("DangerButton")
-        self.delete_btn.setFixedHeight(36)
-        self.delete_btn.setStyleSheet("padding: 0px 14px;")
         self.delete_btn.setCursor(Qt.PointingHandCursor)
         self.delete_btn.clicked.connect(self.delete_selected)
 
@@ -390,7 +402,6 @@ class IncidentCenterWidget(QWidget):
         if reply != QMessageBox.Yes:
             return False
         if self.incident_manager.delete_incident(inc_id):
-            self._reload_host_filter()
             self.refresh_incidents()
             self.incidents_changed.emit()
             return True
@@ -399,28 +410,48 @@ class IncidentCenterWidget(QWidget):
     def view_selected_details(self) -> None:
         inc_id = self._selected_incident_id()
         if inc_id is None:
+            QMessageBox.information(self, _("msg_info"), _("inc_none_selected", "Please select an incident first."))
             return
         inc = self.db.get_incident_by_id(inc_id)
         if not inc:
             return
         start_s = inc["start_time"].strftime("%Y-%m-%d %H:%M:%S") if isinstance(inc.get("start_time"), datetime) else str(inc.get("start_time"))
         end_s = inc["end_time"].strftime("%Y-%m-%d %H:%M:%S") if isinstance(inc.get("end_time"), datetime) else (inc.get("end_time") or "Ongoing")
-        rec_lat = f"{inc['recovery_latency_ms']:.1f} ms" if inc.get("recovery_latency_ms") is not None else "N/A"
+        rec_lat_v = inc.get("recovery_latency_ms")
+        rec_lat = f"{float(rec_lat_v):.1f} ms" if rec_lat_v is not None else "N/A"
+        loss_pct = float(inc.get("packet_loss_pct") or 0.0)
+        avg_before = float(inc.get("avg_latency_before_ms") or 0.0)
         comments_html = html.escape(inc.get("comments") or "—").replace("\n", "<br>")
         body = (
-            f"<b>UID:</b> {html.escape(str(inc['incident_uid']))}<br>"
-            f"<b>Host:</b> {html.escape(str(inc['host_name']))} ({html.escape(str(inc['host_address']))})<br>"
-            f"<b>Type / Severity:</b> {html.escape(str(inc['incident_type']))} / {html.escape(str(inc['severity']))}<br>"
-            f"<b>Status:</b> {html.escape(str(inc['status']))} | <b>Acknowledged:</b> {'Yes' if inc['acknowledged'] else 'No'}<br>"
-            f"<b>Start:</b> {html.escape(start_s)}<br>"
+            f"<b>UID:</b> {html.escape(str(inc.get('incident_uid', '')))}<br>"
+            f"<b>{_('inc_col_host', 'Host')}:</b> {html.escape(str(inc.get('host_name', '')))} ({html.escape(str(inc.get('host_address', '')))})<br>"
+            f"<b>{_('inc_col_type', 'Type')} / {_('inc_col_severity', 'Severity')}:</b> {html.escape(str(inc.get('incident_type', '')))} / {html.escape(str(inc.get('severity', '')))}<br>"
+            f"<b>{_('inc_col_status', 'Status')}:</b> {html.escape(str(inc.get('status', '')))} | <b>Acknowledged:</b> {'Yes' if inc.get('acknowledged') else 'No'}<br>"
+            f"<b>{_('inc_col_start', 'Start')}:</b> {html.escape(start_s)}<br>"
             f"<b>End:</b> {html.escape(str(end_s))}<br>"
-            f"<b>Duration:</b> {self._format_duration(inc.get('duration_seconds', 0.0))}<br>"
-            f"<b>Failed Probes:</b> {inc['failed_probes']} | <b>Packet Loss:</b> {inc['packet_loss_pct']:.1f}%<br>"
-            f"<b>Avg Latency Before Outage:</b> {inc['avg_latency_before_ms']:.1f} ms<br>"
+            f"<b>{_('inc_col_duration', 'Duration')}:</b> {self._format_duration(inc.get('duration_seconds', 0.0))}<br>"
+            f"<b>Failed Probes:</b> {int(inc.get('failed_probes') or 0)} | <b>{_('inc_col_loss', 'Packet Loss')}:</b> {loss_pct:.1f}%<br>"
+            f"<b>Avg Latency Before Outage:</b> {avg_before:.1f} ms<br>"
             f"<b>Recovery Latency:</b> {rec_lat}<br><br>"
-            f"<b>Comments:</b><br>{comments_html}"
+            f"<b>{_('inc_col_comments', 'Comments')}:</b><br>{comments_html}"
         )
-        QMessageBox.information(self, f"{inc['incident_uid']}", body)
+        dlg = QDialog(self)
+        dlg.setWindowTitle(str(inc.get("incident_uid", "Incident Details")))
+        dlg.setMinimumSize(540, 380)
+        dlg.resize(580, 440)
+        dv = QVBoxLayout(dlg)
+        dv.setContentsMargins(16, 16, 16, 16)
+        dv.setSpacing(10)
+        tb = QTextBrowser()
+        tb.setHtml(body)
+        tb.setStyleSheet("QTextBrowser { background-color: #0B1220; color: #E2E8F0; border: 1px solid #334155; border-radius: 10px; padding: 12px; font-size: 13px; }")
+        dv.addWidget(tb, 1)
+        ok_b = QPushButton(_("btn_close", "Close"))
+        ok_b.setObjectName("PrimaryButton")
+        ok_b.setCursor(Qt.PointingHandCursor)
+        ok_b.clicked.connect(dlg.accept)
+        dv.addWidget(ok_b, alignment=Qt.AlignRight)
+        dlg.exec()
 
     def export_csv(self) -> None:
         path, _f = QFileDialog.getSaveFileName(

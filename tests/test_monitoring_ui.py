@@ -510,14 +510,14 @@ class TestMonitoringUI:
         view.shutdown()
         assert view.wan_view.is_continuous_active() is False
 
-        assert CURRENT_VERSION == "v3.6.0"
+        assert CURRENT_VERSION == "v3.6.1"
         iss_path = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..", "build_scripts", "setup_compiler.iss")
         )
         with open(iss_path, "r", encoding="utf-8") as f:
             iss_text = f.read()
-        assert "AppVersion=3.6.0" in iss_text
-        assert "OutputBaseFilename=Install_BahaaIT_v3.6.0" in iss_text
+        assert "AppVersion=3.6.1" in iss_text
+        assert "OutputBaseFilename=Install_BahaaIT_v3.6.1" in iss_text
 
     def test_spinbox_qss_and_incident_deletion(self, tmp_path):
         # 1. Verify QSS fixes QSpinBox/QDoubleSpinBox inner QLineEdit padding/clipping and WAN spinbox width

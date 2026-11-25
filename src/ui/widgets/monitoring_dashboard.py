@@ -9,23 +9,26 @@ class _MiniKpiCard(QFrame):
 
     def __init__(self, title: str, initial_value: str = "--", parent=None):
         super().__init__(parent)
-        self.setObjectName("Card")
-        self.setMinimumHeight(58)
+        self.setObjectName("KpiCard")
+        self.setMinimumHeight(64)
+        self._last_color = "#FFFFFF"
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(2)
 
         self.value_label = QLabel(initial_value)
         self.value_label.setAlignment(Qt.AlignCenter)
+        self.value_label.setWordWrap(True)
         self.value_label.setStyleSheet(
             "font-size: 18px; font-weight: 800; color: #FFFFFF; margin-bottom: 0px;"
         )
 
         self.title_label = QLabel(title.upper())
         self.title_label.setAlignment(Qt.AlignCenter)
+        self.title_label.setWordWrap(True)
         self.title_label.setStyleSheet(
-            "font-size: 10px; font-weight: 700; color: #94A3B8; letter-spacing: 0.8px; margin-bottom: 0px;"
+            "font-size: 11px; font-weight: 700; color: #94A3B8; margin-bottom: 0px;"
         )
 
         layout.addWidget(self.value_label)
@@ -33,9 +36,11 @@ class _MiniKpiCard(QFrame):
 
     def set_value(self, text: str, color: str = "#FFFFFF") -> None:
         self.value_label.setText(text)
-        self.value_label.setStyleSheet(
-            f"font-size: 18px; font-weight: 800; color: {color}; margin-bottom: 0px;"
-        )
+        if color != self._last_color:
+            self._last_color = color
+            self.value_label.setStyleSheet(
+                f"font-size: 18px; font-weight: 800; color: {color}; margin-bottom: 0px;"
+            )
 
 
 class MonitoringOverviewBar(QWidget):
@@ -46,6 +51,8 @@ class MonitoringOverviewBar(QWidget):
         grid = QGridLayout(self)
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setSpacing(10)
+        for c in range(4):
+            grid.setColumnStretch(c, 1)
 
         self.total_card = _MiniKpiCard(_("mon_kpi_total", "Total Hosts"), "0", self)
         self.online_card = _MiniKpiCard(_("mon_kpi_online", "Online"), "0", self)
@@ -54,8 +61,8 @@ class MonitoringOverviewBar(QWidget):
 
         self.incidents_card = _MiniKpiCard(_("mon_kpi_incidents", "Active Incidents"), "0", self)
         self.latency_card = _MiniKpiCard(_("mon_kpi_avg_latency", "Avg Latency"), "-- ms", self)
-        self.loss_card = _MiniKpiCard(_("mon_kpi_packet_loss", "Global Loss"), "0.0%", self)
-        self.uptime_card = _MiniKpiCard(_("mon_kpi_uptime", "Global Uptime"), "100.0%", self)
+        self.loss_card = _MiniKpiCard(_("mon_kpi_packet_loss", "Global Loss"), "--", self)
+        self.uptime_card = _MiniKpiCard(_("mon_kpi_uptime", "Global Uptime"), "--", self)
 
         grid.addWidget(self.total_card, 0, 0)
         grid.addWidget(self.online_card, 0, 1)
@@ -84,8 +91,17 @@ class MonitoringOverviewBar(QWidget):
 
         self.incidents_card.set_value(str(incidents), "#F43F5E" if incidents > 0 else "#10B981")
 
+        if total == 0:
+            self.latency_card.set_value("-- ms", "#94A3B8")
+            self.loss_card.set_value("--", "#94A3B8")
+            self.uptime_card.set_value("--", "#94A3B8")
+            return
+
         lat_color = "#10B981" if avg_lat < 80 else ("#F59E0B" if avg_lat < 150 else "#F43F5E")
-        self.latency_card.set_value(f"{avg_lat:.1f} ms" if avg_lat > 0 else "-- ms", lat_color if avg_lat > 0 else "#94A3B8")
+        self.latency_card.set_value(
+            f"{avg_lat:.1f} ms" if avg_lat > 0 else "-- ms",
+            lat_color if avg_lat > 0 else "#94A3B8",
+        )
 
         loss_color = "#10B981" if loss == 0 else ("#F59E0B" if loss < 10.0 else "#F43F5E")
         self.loss_card.set_value(f"{loss:.1f}%", loss_color)

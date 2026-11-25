@@ -302,10 +302,15 @@ class TestNetworkIntelligenceUI:
             assert srv.wait_until_ready(3.0) is True
             port = srv.bound_port
 
+            now_utc = datetime.utcnow()
+            en_mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][now_utc.month - 1]
+            bsd_ts = f"{en_mon} {now_utc.day:2d} {now_utc.strftime('%H:%M:%S')}"
+            fg_d = now_utc.strftime("%Y-%m-%d")
+            fg_t = now_utc.strftime("%H:%M:%S")
             packets = [
-                b"<187>Nov 21 12:00:00 SW-1 %LINK-3-UPDOWN: Interface Gi1/0/1, changed state to down",
-                b'<187>date=2026-11-21 time=12:00:01 devname="FW-1" devid="FG100F" action="interface-stat-change" status="down" msg="Interface wan1 status changed to down"',
-                b"<190>Nov 21 12:00:02 app-1 systemd[1]: Routine tick completed",
+                f"<187>{bsd_ts} SW-1 %LINK-3-UPDOWN: Interface Gi1/0/1, changed state to down".encode("utf-8"),
+                f'<187>date={fg_d} time={fg_t} devname="FW-1" devid="FG100F" action="interface-stat-change" status="down" msg="Interface wan1 status changed to down"'.encode("utf-8"),
+                f"<190>{bsd_ts} app-1 systemd[1]: Routine tick completed".encode("utf-8"),
             ]
             for pkt in packets:
                 sock.sendto(pkt, ("127.0.0.1", port))
@@ -453,12 +458,12 @@ class TestNetworkIntelligenceUI:
 
     def test_release_v350_packaging_and_mainwindow_wiring(self):
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-        assert CURRENT_VERSION == "v3.6.0"
+        assert CURRENT_VERSION == "v3.6.1"
 
         with open(os.path.join(root_dir, "build_scripts", "setup_compiler.iss"), "r", encoding="utf-8") as f:
             iss = f.read()
-        assert "AppVersion=3.6.0" in iss
-        assert "OutputBaseFilename=Install_BahaaIT_v3.6.0" in iss
+        assert "AppVersion=3.6.1" in iss
+        assert "OutputBaseFilename=Install_BahaaIT_v3.6.1" in iss
 
         with open(os.path.join(root_dir, "build_scripts", "build.py"), "r", encoding="utf-8") as f:
             build_py = f.read()

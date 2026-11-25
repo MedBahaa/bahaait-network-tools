@@ -1,4 +1,5 @@
 from datetime import datetime
+import html
 import os
 import re
 import sys
@@ -15,6 +16,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -32,7 +34,7 @@ from ui.widgets.monitoring_dashboard import MonitoringOverviewBar
 from ui.widgets.monitoring_settings import MonitoringSettingsWidget
 from ui.widgets.wan_monitor_view import WANMonitorView
 from utils.db import DatabaseManager
-from utils.i18n import _
+from utils.i18n import _, escape_qt_mnemonic
 from utils.pdf_generator import PDFReportGenerator
 
 
@@ -161,14 +163,13 @@ class MonitorView(QWidget):
         header_layout.addWidget(header)
 
         self.status_label = QLabel(_("mon_status_stopped", "Stopped"))
-        self.status_label.setStyleSheet("color: #F43F5E; font-weight: bold; margin-left: 10px;")
+        self.status_label.setStyleSheet("color: #F43F5E; font-weight: 700; margin-left: 10px; margin-bottom: 0px;")
         header_layout.addWidget(self.status_label)
         header_layout.addStretch()
 
         self.start_btn = QPushButton(_("mon_btn_start", "Start Monitor"))
         self.start_btn.setObjectName("PrimaryButton")
-        self.start_btn.setMinimumWidth(160)
-        self.start_btn.setFixedHeight(38)
+        self.start_btn.setMinimumWidth(150)
         self.start_btn.setCursor(Qt.PointingHandCursor)
         self.start_btn.clicked.connect(self.toggle_monitor)
         header_layout.addWidget(self.start_btn)
@@ -182,7 +183,7 @@ class MonitorView(QWidget):
         sup_tab = QWidget()
         sup_layout = QVBoxLayout(sup_tab)
         sup_layout.setContentsMargins(0, 12, 0, 0)
-        sup_layout.setSpacing(12)
+        sup_layout.setSpacing(10)
 
         self.overview_bar = MonitoringOverviewBar(self)
         sup_layout.addWidget(self.overview_bar)
@@ -194,17 +195,14 @@ class MonitorView(QWidget):
         self.label_input = QLineEdit()
         self.label_input.setPlaceholderText(_("mon_name_optional_placeholder", "Device Name (optional)..."))
         self.label_input.setFixedWidth(210)
-        self.label_input.setFixedHeight(35)
 
         self.ip_input = QLineEdit()
         self.ip_input.setPlaceholderText(_("mon_ip_placeholder", "IP Address or Hostname..."))
-        self.ip_input.setFixedHeight(35)
         self.ip_input.returnPressed.connect(self.add_host)
 
         self.add_btn = QPushButton(_("mon_btn_add", "Add Host"))
         self.add_btn.setObjectName("SecondaryButton")
-        self.add_btn.setMinimumWidth(130)
-        self.add_btn.setFixedHeight(35)
+        self.add_btn.setMinimumWidth(120)
         self.add_btn.setCursor(Qt.PointingHandCursor)
         self.add_btn.clicked.connect(self.add_host)
 
@@ -239,18 +237,19 @@ class MonitorView(QWidget):
         hdr.setSectionResizeMode(7, QHeaderView.Fixed)
         hdr.setSectionResizeMode(8, QHeaderView.Fixed)
         hdr.setSectionResizeMode(10, QHeaderView.Fixed)
-        self.table.setColumnWidth(2, 96)
-        self.table.setColumnWidth(3, 68)
-        self.table.setColumnWidth(4, 68)
-        self.table.setColumnWidth(5, 64)
-        self.table.setColumnWidth(6, 60)
-        self.table.setColumnWidth(7, 68)
-        self.table.setColumnWidth(8, 82)
-        self.table.setColumnWidth(10, 122)
+        self.table.setColumnWidth(2, 92)
+        self.table.setColumnWidth(3, 74)
+        self.table.setColumnWidth(4, 76)
+        self.table.setColumnWidth(5, 88)
+        self.table.setColumnWidth(6, 66)
+        self.table.setColumnWidth(7, 72)
+        self.table.setColumnWidth(8, 98)
+        self.table.setColumnWidth(10, 114)
 
-        self.table.verticalHeader().setDefaultSectionSize(44)
+        self.table.verticalHeader().setDefaultSectionSize(42)
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
         self.table.cellDoubleClicked.connect(self._on_row_double_clicked)
@@ -259,27 +258,41 @@ class MonitorView(QWidget):
             QTableWidget {
                 background-color: #1E293B;
                 alternate-background-color: #161E2D;
-                border: 1px solid rgba(255, 255, 255, 0.05);
+                border: 1px solid #334155;
                 border-radius: 12px;
-                gridline-color: transparent;
+                gridline-color: rgba(255, 255, 255, 0.04);
             }
             QTableWidget::item {
                 padding-left: 6px;
                 padding-right: 6px;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+                border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            }
+            QTableWidget::item:selected {
+                background-color: rgba(79, 70, 229, 0.35);
+                color: #FFFFFF;
             }
             QHeaderView::section {
                 background-color: #0F172A;
                 padding: 8px 6px;
-                font-weight: bold;
-                font-size: 10px;
-                letter-spacing: 0.7px;
+                font-weight: 700;
+                font-size: 11px;
+                border-bottom: 1px solid #334155;
             }
         """)
-        sup_layout.addWidget(self.table, 1)
+
+        # Resizable vertical splitter between table and live event log
+        sup_splitter = QSplitter(Qt.Vertical)
+        sup_splitter.setChildrenCollapsible(False)
+        sup_splitter.addWidget(self.table)
+
+        log_panel = QWidget()
+        log_panel_lay = QVBoxLayout(log_panel)
+        log_panel_lay.setContentsMargins(0, 4, 0, 0)
+        log_panel_lay.setSpacing(6)
 
         # Compact Live Event Log + Log Export Buttons
         log_header_row = QHBoxLayout()
+        log_header_row.setSpacing(8)
         log_lbl = QLabel(_("mon_event_log", "Event Log") + ":")
         log_lbl.setStyleSheet("font-weight: 600; color: #94A3B8; margin-bottom: 0px;")
         log_header_row.addWidget(log_lbl)
@@ -287,27 +300,31 @@ class MonitorView(QWidget):
 
         self.export_log_btn = QPushButton(_("mon_btn_export", "Export Log"))
         self.export_log_btn.setObjectName("SecondaryButton")
-        self.export_log_btn.setFixedHeight(30)
+        self.export_log_btn.setCursor(Qt.PointingHandCursor)
+        self.export_log_btn.setStyleSheet("padding: 5px 14px; font-size: 12px; border-radius: 8px;")
         self.export_log_btn.clicked.connect(self.export_log)
 
         self.export_pdf_btn = QPushButton(_("mon_btn_export_pdf", "Export PDF"))
         self.export_pdf_btn.setObjectName("SecondaryButton")
-        self.export_pdf_btn.setFixedHeight(30)
+        self.export_pdf_btn.setCursor(Qt.PointingHandCursor)
+        self.export_pdf_btn.setStyleSheet("padding: 5px 14px; font-size: 12px; border-radius: 8px;")
         self.export_pdf_btn.clicked.connect(self.export_pdf)
 
         clear_log_btn = QPushButton(_("mon_btn_clear", "Clear Log"))
         clear_log_btn.setObjectName("SecondaryButton")
-        clear_log_btn.setFixedHeight(30)
+        clear_log_btn.setCursor(Qt.PointingHandCursor)
+        clear_log_btn.setStyleSheet("padding: 5px 14px; font-size: 12px; border-radius: 8px;")
         clear_log_btn.clicked.connect(lambda: self.event_log.clear())
 
         log_header_row.addWidget(self.export_log_btn)
         log_header_row.addWidget(self.export_pdf_btn)
         log_header_row.addWidget(clear_log_btn)
-        sup_layout.addLayout(log_header_row)
+        log_panel_lay.addLayout(log_header_row)
 
         self.event_log = QTextEdit()
         self.event_log.setReadOnly(True)
-        self.event_log.setMaximumHeight(110)
+        self.event_log.document().setMaximumBlockCount(1000)
+        self.event_log.setMinimumHeight(80)
         self.event_log.setStyleSheet("""
             QTextEdit {
                 background-color: #090D16;
@@ -319,9 +336,13 @@ class MonitorView(QWidget):
                 padding: 8px;
             }
         """)
-        sup_layout.addWidget(self.event_log)
+        log_panel_lay.addWidget(self.event_log, 1)
 
-        self.tabs.addTab(sup_tab, _("mon_tab_supervision", "Live Supervision"))
+        sup_splitter.addWidget(log_panel)
+        sup_splitter.setSizes([310, 140])
+        sup_layout.addWidget(sup_splitter, 1)
+
+        self.tabs.addTab(sup_tab, escape_qt_mnemonic(_("mon_tab_supervision", "Live Supervision")))
 
         # ── Tab 1: Incident Center ──
         self.incident_center = IncidentCenterWidget(self.incident_manager, self.db, self)
@@ -365,7 +386,10 @@ class MonitorView(QWidget):
             color = "#F59E0B"
         elif level in ("ERROR", "CRITICAL"):
             color = "#F43F5E"
-        self.event_log.append(f'<span style="color: #64748B;">[{timestamp}]</span> <span style="color: {color};">[{level}]</span> {message}')
+        self.event_log.append(
+            f'<span style="color: #64748B;">[{timestamp}]</span> '
+            f'<span style="color: {color};">[{html.escape(str(level))}]</span> {html.escape(str(message))}'
+        )
 
     def add_host(self) -> None:
         raw_host = self.ip_input.text().strip()
@@ -412,9 +436,19 @@ class MonitorView(QWidget):
         self.refresh_table()
         self._update_overview_summary()
 
-    def delete_host(self, host: str) -> None:
+    def delete_host(self, host: str, confirm: bool = False) -> None:
         if host not in self.hosts:
             return
+        if confirm:
+            ans = QMessageBox.question(
+                self,
+                _("mon_tooltip_delete", "Delete Host"),
+                f"{_('mon_tooltip_delete', 'Delete')} {host}?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if ans != QMessageBox.Yes:
+                return
         self.engine.remove_host(host)
         self.db.delete_host(host)
         self.hosts.pop(host, None)
@@ -456,6 +490,7 @@ class MonitorView(QWidget):
             parent=self,
         )
         dlg.incidents_changed.connect(self._on_host_dialog_incidents_changed)
+        dlg.finished.connect(lambda _res, h=host: self.details_dialogs.pop(h, None))
         dlg.tabs.setCurrentIndex(initial_tab)
         self.details_dialogs[host] = dlg
         dlg.show()
@@ -482,9 +517,10 @@ class MonitorView(QWidget):
 
             # Build action widget (Pause/Resume, Details, Delete)
             action_widget = QWidget()
+            action_widget.setStyleSheet("background: transparent;")
             action_layout = QHBoxLayout(action_widget)
-            action_layout.setContentsMargins(4, 0, 4, 0)
-            action_layout.setSpacing(6)
+            action_layout.setContentsMargins(2, 0, 2, 0)
+            action_layout.setSpacing(5)
             action_layout.setAlignment(Qt.AlignCenter)
 
             is_active = bool(snap.get("active", True))
@@ -494,8 +530,11 @@ class MonitorView(QWidget):
             pause_btn.setFixedSize(28, 28)
             pause_btn.setCursor(Qt.PointingHandCursor)
             pause_btn.setIcon(QIcon(os.path.join(self.icons_dir, pause_icon)))
-            pause_btn.setToolTip(_("mon_tooltip_pause"))
-            pause_btn.setStyleSheet("background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 6px;")
+            pause_btn.setToolTip(_("mon_tooltip_pause") if is_active else _("mon_status_running", "Resume"))
+            pause_btn.setStyleSheet(
+                "QPushButton { background: rgba(99, 102, 241, 0.14); border: 1px solid rgba(99, 102, 241, 0.30); border-radius: 6px; padding: 0px; }"
+                "QPushButton:hover { background: rgba(99, 102, 241, 0.32); border-color: #818CF8; }"
+            )
             pause_btn.clicked.connect(lambda checked=False, h=host: self.toggle_pause(h))
 
             details_btn = QPushButton()
@@ -503,7 +542,10 @@ class MonitorView(QWidget):
             details_btn.setCursor(Qt.PointingHandCursor)
             details_btn.setIcon(QIcon(os.path.join(self.icons_dir, "activity.svg")))
             details_btn.setToolTip(_("mon_tooltip_details", "Host Details & Real-Time Charts"))
-            details_btn.setStyleSheet("background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 6px;")
+            details_btn.setStyleSheet(
+                "QPushButton { background: rgba(16, 185, 129, 0.14); border: 1px solid rgba(16, 185, 129, 0.30); border-radius: 6px; padding: 0px; }"
+                "QPushButton:hover { background: rgba(16, 185, 129, 0.32); border-color: #34D399; }"
+            )
             details_btn.clicked.connect(lambda checked=False, h=host: self.show_details(h))
 
             delete_btn = QPushButton()
@@ -511,8 +553,11 @@ class MonitorView(QWidget):
             delete_btn.setCursor(Qt.PointingHandCursor)
             delete_btn.setIcon(QIcon(os.path.join(self.icons_dir, "trash.svg")))
             delete_btn.setToolTip(_("mon_tooltip_delete"))
-            delete_btn.setStyleSheet("background: rgba(244, 63, 94, 0.12); border: 1px solid rgba(244, 63, 94, 0.25); border-radius: 6px;")
-            delete_btn.clicked.connect(lambda checked=False, h=host: self.delete_host(h))
+            delete_btn.setStyleSheet(
+                "QPushButton { background: rgba(244, 63, 94, 0.14); border: 1px solid rgba(244, 63, 94, 0.30); border-radius: 6px; padding: 0px; }"
+                "QPushButton:hover { background: rgba(244, 63, 94, 0.35); border-color: #F43F5E; }"
+            )
+            delete_btn.clicked.connect(lambda checked=False, h=host: self.delete_host(h, confirm=True))
 
             action_layout.addWidget(pause_btn)
             action_layout.addWidget(details_btn)
@@ -587,9 +632,12 @@ class MonitorView(QWidget):
 
         self.add_log_entry(_("mon_log_started", "Monitoring started"))
         self.start_btn.setText(_("mon_btn_stop", "Stop Monitor"))
-        self.start_btn.setStyleSheet("background-color: #F43F5E;")
+        self.start_btn.setStyleSheet(
+            "QPushButton { background-color: #E11D48; color: #FFFFFF; border-radius: 10px; padding: 7px 16px; font-weight: 700; border: none; }"
+            "QPushButton:hover { background-color: #F43F5E; }"
+        )
         self.status_label.setText(_("mon_status_running", "Running"))
-        self.status_label.setStyleSheet("color: #10B981; font-weight: bold; margin-left: 10px;")
+        self.status_label.setStyleSheet("color: #10B981; font-weight: 700; margin-left: 10px; margin-bottom: 0px;")
 
         QTimer.singleShot(250, lambda: self.start_btn.setEnabled(True) if self.is_monitoring_active else None)
 
@@ -604,13 +652,23 @@ class MonitorView(QWidget):
         if self.engine and self.engine.isRunning():
             self.start_btn.setEnabled(False)
             self.start_btn.setText(_("mon_btn_stopping", "Stopping..."))
-            self.start_btn.setStyleSheet("background-color: #64748B; color: #E2E8F0;")
+            self.start_btn.setStyleSheet(
+                "QPushButton { background-color: #475569; color: #CBD5E1; border-radius: 10px; padding: 7px 16px; font-weight: 700; border: none; }"
+            )
             self.engine.stop(timeout_ms=3000)
         else:
             self.on_monitor_finished()
 
     def shutdown(self) -> None:
-        """Stop both autonomous WAN workers and Host monitoring engine on app exit."""
+        """Stop timers, details dialogs, autonomous WAN workers, and Host monitoring engine on app exit."""
+        if hasattr(self, "_overview_timer") and self._overview_timer:
+            self._overview_timer.stop()
+        for dlg in list(self.details_dialogs.values()):
+            try:
+                dlg.close()
+            except Exception:
+                pass
+        self.details_dialogs.clear()
         if hasattr(self, "wan_view"):
             self.wan_view.stop_workers(stop_continuous=True)
         self.stop_monitor()
@@ -621,7 +679,7 @@ class MonitorView(QWidget):
         self.start_btn.setText(_("mon_btn_start", "Start Monitor"))
         self.start_btn.setStyleSheet("")
         self.status_label.setText(_("mon_status_stopped", "Stopped"))
-        self.status_label.setStyleSheet("color: #F43F5E; font-weight: bold; margin-left: 10px;")
+        self.status_label.setStyleSheet("color: #F43F5E; font-weight: 700; margin-left: 10px; margin-bottom: 0px;")
         self.add_log_entry(_("mon_log_stopped", "Monitoring stopped"), "WARNING")
 
     def on_host_updated(self, snap: Dict[str, Any]) -> None:
@@ -731,7 +789,7 @@ class MonitorView(QWidget):
         )
         if file_path:
             try:
-                content = re.sub(r"<[^>]+>", "", self.event_log.toPlainText())
+                content = self.event_log.toPlainText()
                 with open(file_path, "w", encoding="utf-8") as f:
                     f.write(content)
                 self.add_log_entry(_("mon_log_exported").format(file_path))

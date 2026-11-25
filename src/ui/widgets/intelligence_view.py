@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QPushButton,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -61,8 +62,12 @@ class IntelligenceView(QWidget):
         self.refresh_findings()
 
         self.timer = QTimer(self)
-        self.timer.timeout.connect(self.refresh_findings)
+        self.timer.timeout.connect(self._on_auto_refresh)
         self.timer.start(15000)
+
+    def _on_auto_refresh(self) -> None:
+        if self.isVisible():
+            self.refresh_findings()
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -71,19 +76,22 @@ class IntelligenceView(QWidget):
 
         # Header
         hdr = QHBoxLayout()
+        hdr.setSpacing(10)
         title = QLabel(_("intel_title", "Network Intelligence & Root-Cause Correlation"))
         title.setObjectName("Title")
-        title.setStyleSheet("font-size: 24px; font-weight: 800; color: #FFFFFF; margin-bottom: 0px;")
-        hdr.addWidget(title)
-        hdr.addStretch()
+        title.setWordWrap(True)
+        title.setStyleSheet("font-size: 23px; font-weight: 800; color: #FFFFFF; margin-bottom: 0px;")
+        hdr.addWidget(title, 1)
 
         self.btn_correlate = QPushButton(_("intel_btn_correlate", "Run Correlation Now"))
         self.btn_correlate.setObjectName("PrimaryButton")
+        self.btn_correlate.setCursor(Qt.PointingHandCursor)
         self.btn_correlate.clicked.connect(self.run_correlation_now)
         hdr.addWidget(self.btn_correlate)
 
         self.btn_refresh = QPushButton(_("intel_btn_refresh", "Refresh"))
         self.btn_refresh.setObjectName("SecondaryButton")
+        self.btn_refresh.setCursor(Qt.PointingHandCursor)
         self.btn_refresh.clicked.connect(self.refresh_findings)
         hdr.addWidget(self.btn_refresh)
         root.addLayout(hdr)
@@ -98,7 +106,10 @@ class IntelligenceView(QWidget):
         root.addLayout(kpi_row)
 
         # Filter Bar
-        filt = QHBoxLayout()
+        filt_frame = QFrame()
+        filt_frame.setObjectName("FilterBar")
+        filt = QHBoxLayout(filt_frame)
+        filt.setContentsMargins(12, 8, 12, 8)
         filt.setSpacing(10)
         s_lbl = QLabel(_("intel_filter_status", "Status:"))
         s_lbl.setStyleSheet("margin-bottom: 0px;")
@@ -140,11 +151,10 @@ class IntelligenceView(QWidget):
         ):
             self.type_combo.addItem(et, et)
         self.type_combo.currentIndexChanged.connect(self.refresh_findings)
-        filt.addWidget(self.type_combo)
-        filt.addStretch()
-        root.addLayout(filt)
+        filt.addWidget(self.type_combo, 1)
+        root.addWidget(filt_frame)
 
-        # Findings Table (8 columns)
+        # Findings Table (8 columns) + 3-panel Diagnosis Inspector inside vertical QSplitter
         headers = [
             _("intel_col_time", "Detected At"),
             _("intel_col_sev", "Severity"),
@@ -160,14 +170,17 @@ class IntelligenceView(QWidget):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Stretch)
+        self.table.verticalHeader().setDefaultSectionSize(34)
+        ih = self.table.horizontalHeader()
+        ih.setSectionResizeMode(QHeaderView.ResizeToContents)
+        ih.setSectionResizeMode(6, QHeaderView.Stretch)
         self.table.itemSelectionChanged.connect(self._on_finding_selected)
-        root.addWidget(self.table, 2)
 
-        # Three-Panel Diagnosis Inspector (strictly separating Observed Evidence vs Inferred Probable Cause vs Actions)
-        panels = QHBoxLayout()
+        panels_w = QWidget()
+        panels = QHBoxLayout(panels_w)
+        panels.setContentsMargins(0, 4, 0, 0)
         panels.setSpacing(12)
         self.evidence_box = self._make_inspector_panel(
             panels, _("intel_panel_evidence", "OBSERVED EVIDENCE (FACTS)"), "#06B6D4"
@@ -178,23 +191,32 @@ class IntelligenceView(QWidget):
         self.actions_box = self._make_inspector_panel(
             panels, _("intel_panel_actions", "RECOMMENDED ACTIONS"), "#10B981"
         )
-        root.addLayout(panels, 1)
+
+        splitter = QSplitter(Qt.Vertical)
+        splitter.setChildrenCollapsible(False)
+        splitter.addWidget(self.table)
+        splitter.addWidget(panels_w)
+        splitter.setSizes([250, 175])
+        root.addWidget(splitter, 1)
 
         # Bottom Action Buttons
         acts = QHBoxLayout()
         acts.setSpacing(10)
         self.btn_ack = QPushButton(_("intel_btn_ack", "Acknowledge"))
         self.btn_ack.setObjectName("SecondaryButton")
+        self.btn_ack.setCursor(Qt.PointingHandCursor)
         self.btn_ack.clicked.connect(self._ack_selected)
         acts.addWidget(self.btn_ack)
 
         self.btn_resolve = QPushButton(_("intel_btn_resolve", "Mark Resolved"))
         self.btn_resolve.setObjectName("PrimaryButton")
+        self.btn_resolve.setCursor(Qt.PointingHandCursor)
         self.btn_resolve.clicked.connect(self._resolve_selected)
         acts.addWidget(self.btn_resolve)
 
         self.btn_open_device = QPushButton(_("intel_btn_open_dev", "Open Device Details"))
         self.btn_open_device.setObjectName("SecondaryButton")
+        self.btn_open_device.setCursor(Qt.PointingHandCursor)
         self.btn_open_device.clicked.connect(self._open_selected_device)
         acts.addWidget(self.btn_open_device)
         acts.addStretch()
@@ -205,75 +227,84 @@ class IntelligenceView(QWidget):
     @staticmethod
     def _make_kpi_card(layout: QHBoxLayout, title: str, init_val: str, color: str) -> QLabel:
         frame = QFrame()
-        frame.setObjectName("Card")
+        frame.setObjectName("KpiCard")
         fl = QVBoxLayout(frame)
-        fl.setContentsMargins(12, 10, 12, 10)
+        fl.setContentsMargins(12, 8, 12, 8)
         fl.setSpacing(2)
         val_lbl = QLabel(init_val)
         val_lbl.setAlignment(Qt.AlignCenter)
         val_lbl.setStyleSheet(f"font-size: 20px; font-weight: 800; color: {color}; margin-bottom: 0px;")
-        t_lbl = QLabel(title)
+        t_lbl = QLabel(title.upper())
         t_lbl.setAlignment(Qt.AlignCenter)
-        t_lbl.setStyleSheet("font-size: 11px; color: #94A3B8; font-weight: 700; text-transform: uppercase; margin-bottom: 0px;")
+        t_lbl.setWordWrap(True)
+        t_lbl.setStyleSheet("font-size: 11px; color: #94A3B8; font-weight: 700; margin-bottom: 0px;")
         fl.addWidget(val_lbl)
         fl.addWidget(t_lbl)
-        layout.addWidget(frame)
+        layout.addWidget(frame, 1)
         return val_lbl
 
     @staticmethod
     def _make_inspector_panel(layout: QHBoxLayout, title: str, accent: str) -> QTextEdit:
         card = QFrame()
-        card.setObjectName("Card")
+        card.setObjectName("PanelCard")
         cl = QVBoxLayout(card)
         cl.setContentsMargins(12, 10, 12, 10)
         cl.setSpacing(6)
         hdr = QLabel(title)
-        hdr.setStyleSheet(f"color: {accent}; font-weight: 800; font-size: 11px; letter-spacing: 0.8px; margin-bottom: 0px;")
+        hdr.setWordWrap(True)
+        hdr.setStyleSheet(f"color: {accent}; font-weight: 800; font-size: 11px; margin-bottom: 0px;")
         cl.addWidget(hdr)
         box = QTextEdit()
         box.setReadOnly(True)
-        box.setMinimumHeight(130)
+        box.setMinimumHeight(80)
         box.setStyleSheet(
-            "QTextEdit { background-color: #0F172A; color: #E2E8F0; border: 1px solid #334155; border-radius: 8px; padding: 8px; font-size: 12px; }"
+            "QTextEdit { background-color: #0B1220; color: #E2E8F0; border: 1px solid #334155; border-radius: 8px; padding: 8px; font-size: 12px; }"
         )
-        cl.addWidget(box)
+        cl.addWidget(box, 1)
         layout.addWidget(card, 1)
         return box
 
     @staticmethod
     def _make_cause_panel(layout: QHBoxLayout, title: str, accent: str):
         card = QFrame()
-        card.setObjectName("Card")
+        card.setObjectName("PanelCard")
         cl = QVBoxLayout(card)
         cl.setContentsMargins(12, 10, 12, 10)
         cl.setSpacing(6)
         top = QHBoxLayout()
+        top.setSpacing(6)
         hdr = QLabel(title)
-        hdr.setStyleSheet(f"color: {accent}; font-weight: 800; font-size: 11px; letter-spacing: 0.8px; margin-bottom: 0px;")
+        hdr.setWordWrap(True)
+        hdr.setStyleSheet(f"color: {accent}; font-weight: 800; font-size: 11px; margin-bottom: 0px;")
         conf_badge = QLabel("--")
         conf_badge.setStyleSheet(
-            "background-color: #334155; color: #FFFFFF; border-radius: 6px; padding: 2px 8px; font-size: 10px; font-weight: bold; margin-bottom: 0px;"
+            "background-color: #334155; color: #F1F5F9; border-radius: 6px; padding: 2px 8px; font-size: 11px; font-weight: 700; margin-bottom: 0px;"
         )
-        top.addWidget(hdr)
-        top.addStretch()
+        top.addWidget(hdr, 1)
         top.addWidget(conf_badge)
         cl.addLayout(top)
         box = QTextEdit()
         box.setReadOnly(True)
-        box.setMinimumHeight(130)
+        box.setMinimumHeight(80)
         box.setStyleSheet(
-            "QTextEdit { background-color: #0F172A; color: #FDE68A; border: 1px solid #334155; border-radius: 8px; padding: 8px; font-size: 12px; }"
+            "QTextEdit { background-color: #0B1220; color: #FDE68A; border: 1px solid #334155; border-radius: 8px; padding: 8px; font-size: 12px; }"
         )
-        cl.addWidget(box)
+        cl.addWidget(box, 1)
         layout.addWidget(card, 1)
         return card, box, conf_badge
 
     def run_correlation_now(self) -> None:
-        snaps = self._snmp_snapshots_provider() if callable(self._snmp_snapshots_provider) else {}
-        self.intelligence_engine.correlate_all_devices(snmp_snapshots=snaps)
-        self.refresh_findings()
+        self.btn_correlate.setEnabled(False)
+        try:
+            snaps = self._snmp_snapshots_provider() if callable(self._snmp_snapshots_provider) else {}
+            self.intelligence_engine.correlate_all_devices(snmp_snapshots=snaps)
+            self.refresh_findings()
+        finally:
+            self.btn_correlate.setEnabled(True)
 
     def refresh_findings(self) -> None:
+        prev = self._selected_finding()
+        prev_id = prev.get("id") if prev else None
         summary = self.intelligence_engine.get_infrastructure_summary()
         self.kpi_open.setText(str(summary["total_active"]))
         self.kpi_crit.setText(str(summary["critical_count"]))
@@ -298,9 +329,12 @@ class IntelligenceView(QWidget):
 
         self._visible_rows = filtered
         self.table.setRowCount(0)
+        restore_row = -1
         for r in filtered:
             row_idx = self.table.rowCount()
             self.table.insertRow(row_idx)
+            if prev_id is not None and r.get("id") == prev_id:
+                restore_row = row_idx
             ts = r.get("detected_at")
             ts_str = ts.strftime("%Y-%m-%d %H:%M:%S") if isinstance(ts, datetime) else str(ts or "")
             sev = str(r.get("severity", "INFO"))
@@ -321,8 +355,12 @@ class IntelligenceView(QWidget):
 
         if not filtered:
             self._clear_inspector()
-        elif self.table.currentRow() < 0:
+        elif restore_row >= 0:
+            self.table.selectRow(restore_row)
+            self.table.setCurrentCell(restore_row, 0)
+        else:
             self.table.selectRow(0)
+            self.table.setCurrentCell(0, 0)
 
     def _clear_inspector(self) -> None:
         hint = _("intel_none_selected", "Select a finding above to inspect observed evidence and root-cause analysis.")
@@ -330,6 +368,10 @@ class IntelligenceView(QWidget):
         self.cause_box.setPlainText("")
         self.confidence_badge.setText("--")
         self.actions_box.setPlainText("")
+        if hasattr(self, "btn_ack"):
+            self.btn_ack.setEnabled(False)
+            self.btn_resolve.setEnabled(False)
+            self.btn_open_device.setEnabled(False)
 
     def _selected_finding(self) -> Optional[Dict[str, Any]]:
         idx = self.table.currentRow()
@@ -342,6 +384,10 @@ class IntelligenceView(QWidget):
         if f is None:
             self._clear_inspector()
             return
+        st = str(f.get("status", "ACTIVE")).upper()
+        self.btn_ack.setEnabled(st == "ACTIVE")
+        self.btn_resolve.setEnabled(st in ("ACTIVE", "ACKNOWLEDGED"))
+        self.btn_open_device.setEnabled(f.get("device_id") is not None)
         ev_lines = [f"• {e}" for e in f.get("evidence", [])]
         self.evidence_box.setPlainText("\n".join(ev_lines) if ev_lines else "No raw evidence attached.")
         self.cause_box.setPlainText(str(f.get("probable_cause") or ""))

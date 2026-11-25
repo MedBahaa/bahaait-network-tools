@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -16,6 +17,8 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -30,7 +33,7 @@ from core.inventory_manager import InventoryManager
 from core.site_manager import SiteManager
 from core.vlan_manager import SUPPORTED_VLAN_OPERATIONS, VLANManager
 from utils.db import DatabaseManager
-from utils.i18n import _
+from utils.i18n import _, escape_qt_mnemonic
 
 
 class VLANConfirmDialog(QDialog):
@@ -40,7 +43,10 @@ class VLANConfirmDialog(QDialog):
         super().__init__(parent)
         self.plan = plan
         self.setWindowTitle(_("vlan_confirm_title", "Confirm VLAN Configuration Change"))
-        self.setMinimumSize(560, 440)
+        screen = QApplication.primaryScreen().availableGeometry() if QApplication.primaryScreen() else None
+        max_h = int(screen.height() * 0.85) if screen else 640
+        self.setMinimumSize(560, min(440, max_h))
+        self.setMaximumHeight(max_h)
         self.setStyleSheet("QDialog { background-color: #0F172A; color: #F1F5F9; }")
 
         root = QVBoxLayout(self)
@@ -80,12 +86,19 @@ class VLANConfirmDialog(QDialog):
         self.confirm_chk = QCheckBox(
             _("vlan_confirm_check", "I have reviewed these vendor CLI commands and confirm execution.")
         )
+        self.confirm_chk.setCursor(Qt.PointingHandCursor)
         root.addWidget(self.confirm_chk)
 
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.ok_btn = btns.button(QDialogButtonBox.Ok)
+        cancel_b = btns.button(QDialogButtonBox.Cancel)
         self.ok_btn.setText(_("vlan_btn_execute", "Execute Plan"))
+        self.ok_btn.setObjectName("DangerButton" if risk == "DESTRUCTIVE" else "PrimaryButton")
+        self.ok_btn.setCursor(Qt.PointingHandCursor)
         self.ok_btn.setEnabled(False)
+        if cancel_b:
+            cancel_b.setObjectName("SecondaryButton")
+            cancel_b.setCursor(Qt.PointingHandCursor)
         self.confirm_chk.toggled.connect(self.ok_btn.setEnabled)
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
@@ -124,21 +137,26 @@ class VLANView(QWidget):
         # Header
         hdr = QHBoxLayout()
         t_col = QVBoxLayout()
+        t_col.setSpacing(2)
         lbl_t = QLabel(_("vlan_title", "VLAN Management"))
+        lbl_t.setObjectName("Title")
         lbl_t.setStyleSheet("font-size: 20px; font-weight: bold; color: #F8FAFC;")
         lbl_s = QLabel(_("vlan_subtitle", "Multi-switch IEEE 802.1Q visibility, consistency diagnostics & confirmed CLI planning"))
+        lbl_s.setWordWrap(True)
         lbl_s.setStyleSheet("color: #94A3B8; font-size: 12px;")
         t_col.addWidget(lbl_t)
         t_col.addWidget(lbl_s)
-        hdr.addLayout(t_col)
-        hdr.addStretch()
+        hdr.addLayout(t_col, 1)
 
         self.sync_btn = QPushButton(_("vlan_btn_sync", "Sync SNMP VLANs"))
-        self.sync_btn.setProperty("class", "PrimaryButton")
+        self.sync_btn.setObjectName("PrimaryButton")
+        self.sync_btn.setCursor(Qt.PointingHandCursor)
         self.sync_btn.clicked.connect(self._sync_snmp)
         hdr.addWidget(self.sync_btn)
 
         self.refresh_btn = QPushButton(_("common_refresh", "Refresh"))
+        self.refresh_btn.setObjectName("SecondaryButton")
+        self.refresh_btn.setCursor(Qt.PointingHandCursor)
         self.refresh_btn.clicked.connect(self.refresh)
         hdr.addWidget(self.refresh_btn)
         root.addLayout(hdr)
@@ -154,27 +172,36 @@ class VLANView(QWidget):
             kpi_row.addWidget(c)
         root.addLayout(kpi_row)
 
-        # Filter Toolbar
+        # Filter Toolbar (scoped #FilterBar)
         bar = QFrame()
-        bar.setStyleSheet("QFrame { background-color: #1E293B; border: 1px solid #334155; border-radius: 10px; }")
+        bar.setObjectName("FilterBar")
         bar_l = QHBoxLayout(bar)
         bar_l.setContentsMargins(12, 8, 12, 8)
         bar_l.setSpacing(10)
 
         bar_l.addWidget(QLabel(_("topo_lbl_site", "Site:")))
         self.site_combo = QComboBox()
+        self.site_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.site_combo.setMinimumWidth(135)
         self.site_combo.currentIndexChanged.connect(self.refresh)
         bar_l.addWidget(self.site_combo)
 
         bar_l.addWidget(QLabel(_("vlan_lbl_device", "Device:")))
         self.dev_filter_combo = QComboBox()
+        self.dev_filter_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.dev_filter_combo.setMinimumWidth(175)
         self.dev_filter_combo.currentIndexChanged.connect(self.refresh)
         bar_l.addWidget(self.dev_filter_combo)
 
         self.search_input = QLineEdit()
+        self.search_input.setMinimumWidth(140)
         self.search_input.setPlaceholderText(_("vlan_search_ph", "Filter VLAN ID, name, switch..."))
         self.search_input.textChanged.connect(self.refresh)
         bar_l.addWidget(self.search_input, 1)
+
+        self.sync_status_lbl = QLabel("")
+        self.sync_status_lbl.setStyleSheet("color: #94A3B8; font-size: 12px;")
+        bar_l.addWidget(self.sync_status_lbl)
         root.addWidget(bar)
 
         # Tabs
@@ -184,13 +211,15 @@ class VLANView(QWidget):
         # Tab 1: VLAN Inventory & Multi-Switch Matrix
         t1 = QWidget()
         t1_l = QVBoxLayout(t1)
+        t1_l.setContentsMargins(10, 10, 10, 10)
         split = QSplitter(Qt.Vertical)
+        split.setChildrenCollapsible(False)
 
         self.vlan_table = QTableWidget(0, 9)
         self.vlan_table.setHorizontalHeaderLabels([
-            _("inv_col_host", "Device"),
-            _("inv_col_vendor", "Vendor"),
-            _("inv_col_site", "Site"),
+            _("inv_col_hostname", "Device"),
+            _("inv_hdr_vendor", "Vendor"),
+            _("site_col_name", "Site"),
             "VLAN ID",
             _("vlan_col_name", "VLAN Name"),
             _("inv_col_status", "Status"),
@@ -198,7 +227,17 @@ class VLANView(QWidget):
             _("vlan_col_tagged", "Tagged Ports"),
             _("vlan_col_trunks", "Trunks"),
         ])
-        self.vlan_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        vhdr = self.vlan_table.horizontalHeader()
+        vhdr.setSectionResizeMode(QHeaderView.Interactive)
+        vhdr.setSectionResizeMode(8, QHeaderView.Stretch)
+        self.vlan_table.setColumnWidth(0, 130)
+        self.vlan_table.setColumnWidth(1, 96)
+        self.vlan_table.setColumnWidth(2, 92)
+        self.vlan_table.setColumnWidth(3, 70)
+        self.vlan_table.setColumnWidth(4, 114)
+        self.vlan_table.setColumnWidth(5, 80)
+        self.vlan_table.setColumnWidth(6, 172)
+        self.vlan_table.setColumnWidth(7, 116)
         self.vlan_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.vlan_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.vlan_table.verticalHeader().setVisible(False)
@@ -207,7 +246,9 @@ class VLANView(QWidget):
         matrix_wrap = QWidget()
         mw_l = QVBoxLayout(matrix_wrap)
         mw_l.setContentsMargins(0, 6, 0, 0)
-        mw_l.addWidget(QLabel(_("vlan_matrix_hdr", "Multi-Switch Spanning Matrix")))
+        mw_hdr = QLabel(_("vlan_matrix_hdr", "Multi-Switch Spanning Matrix"))
+        mw_hdr.setObjectName("SectionHeader")
+        mw_l.addWidget(mw_hdr)
         self.matrix_table = QTableWidget(0, 6)
         self.matrix_table.setHorizontalHeaderLabels([
             "VLAN ID",
@@ -217,17 +258,27 @@ class VLANView(QWidget):
             _("vlan_col_tr_cnt", "Tagged / Trunk Ports"),
             _("vlan_col_consistency", "Consistency"),
         ])
-        self.matrix_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        mhdr = self.matrix_table.horizontalHeader()
+        mhdr.setSectionResizeMode(QHeaderView.Interactive)
+        mhdr.setSectionResizeMode(1, QHeaderView.Stretch)
+        mhdr.setSectionResizeMode(2, QHeaderView.Stretch)
+        self.matrix_table.setColumnWidth(0, 76)
+        self.matrix_table.setColumnWidth(3, 98)
+        self.matrix_table.setColumnWidth(4, 140)
+        self.matrix_table.setColumnWidth(5, 120)
         self.matrix_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.matrix_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.matrix_table.verticalHeader().setVisible(False)
         mw_l.addWidget(self.matrix_table)
         split.addWidget(matrix_wrap)
+        split.setSizes([240, 180])
         t1_l.addWidget(split)
         self.tabs.addTab(t1, _("vlan_tab_overview", "VLAN Visualization"))
 
         # Tab 2: Inconsistencies
         t2 = QWidget()
         t2_l = QVBoxLayout(t2)
+        t2_l.setContentsMargins(10, 10, 10, 10)
         self.warn_table = QTableWidget(0, 6)
         self.warn_table.setHorizontalHeaderLabels([
             _("common_severity", "Severity"),
@@ -237,8 +288,16 @@ class VLANView(QWidget):
             _("common_detail", "Detail"),
             _("vlan_warn_fix", "Recommended Action"),
         ])
-        self.warn_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        whdr = self.warn_table.horizontalHeader()
+        whdr.setSectionResizeMode(QHeaderView.Interactive)
+        whdr.setSectionResizeMode(4, QHeaderView.Stretch)
+        whdr.setSectionResizeMode(5, QHeaderView.Stretch)
+        self.warn_table.setColumnWidth(0, 88)
+        self.warn_table.setColumnWidth(1, 130)
+        self.warn_table.setColumnWidth(2, 72)
+        self.warn_table.setColumnWidth(3, 140)
         self.warn_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.warn_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.warn_table.verticalHeader().setVisible(False)
         t2_l.addWidget(self.warn_table)
         self.tabs.addTab(t2, _("vlan_tab_warnings", "Inconsistencies"))
@@ -246,16 +305,32 @@ class VLANView(QWidget):
         # Tab 3: Controlled VLAN Change Planner
         t3 = QWidget()
         t3_l = QHBoxLayout(t3)
+        t3_l.setContentsMargins(10, 10, 10, 10)
+        t3_l.setSpacing(12)
 
         form_card = QFrame()
-        form_card.setStyleSheet("QFrame { background-color: #1E293B; border: 1px solid #334155; border-radius: 10px; }")
+        form_card.setObjectName("PanelCard")
         fc_l = QVBoxLayout(form_card)
         fc_l.setContentsMargins(14, 14, 14, 14)
-        form = QFormLayout()
-        form.setSpacing(8)
+        fc_l.setSpacing(10)
+
+        plan_scroll = QScrollArea()
+        plan_scroll.setWidgetResizable(True)
+        plan_scroll.setFrameShape(QFrame.NoFrame)
+        plan_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        plan_body = QWidget()
+        form = QFormLayout(plan_body)
+        form.setVerticalSpacing(10)
+        form.setHorizontalSpacing(10)
 
         self.plan_dev_combo = QComboBox()
+        self.plan_dev_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.plan_dev_combo.setMinimumContentsLength(18)
+        self.plan_dev_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.plan_op_combo = QComboBox()
+        self.plan_op_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.plan_op_combo.setMinimumContentsLength(18)
+        self.plan_op_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         for op in SUPPORTED_VLAN_OPERATIONS:
             self.plan_op_combo.addItem(op, op)
         self.plan_vid_edit = QLineEdit()
@@ -267,29 +342,43 @@ class VLANView(QWidget):
         self.plan_extra_edit = QLineEdit()
         self.plan_extra_edit.setPlaceholderText("tag_action (add/remove) or parent_interface")
 
+        for w_sig in (
+            self.plan_dev_combo.currentIndexChanged,
+            self.plan_op_combo.currentIndexChanged,
+            self.plan_vid_edit.textChanged,
+            self.plan_vname_edit.textChanged,
+            self.plan_port_edit.textChanged,
+            self.plan_extra_edit.textChanged,
+        ):
+            w_sig.connect(self._invalidate_plan)
+
         form.addRow(_("vlan_plan_dev", "Target Switch/Firewall:"), self.plan_dev_combo)
         form.addRow(_("vlan_plan_op", "Operation:"), self.plan_op_combo)
         form.addRow("VLAN ID (1-4094):", self.plan_vid_edit)
         form.addRow(_("vlan_col_name", "VLAN Name:"), self.plan_vname_edit)
         form.addRow(_("vlan_plan_port", "Port / Interface:"), self.plan_port_edit)
         form.addRow(_("vlan_plan_extra", "Option / Parent IF:"), self.plan_extra_edit)
-        fc_l.addLayout(form)
+        plan_scroll.setWidget(plan_body)
+        fc_l.addWidget(plan_scroll, 1)
 
         btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
         self.preview_plan_btn = QPushButton(_("vlan_btn_preview", "Preview CLI Plan"))
-        self.preview_plan_btn.setProperty("class", "PrimaryButton")
+        self.preview_plan_btn.setObjectName("PrimaryButton")
+        self.preview_plan_btn.setCursor(Qt.PointingHandCursor)
         self.preview_plan_btn.clicked.connect(self._generate_preview)
         btn_row.addWidget(self.preview_plan_btn)
 
-        self.apply_plan_btn = QPushButton(_("vlan_btn_confirm_apply", "Review & Confirm Apply..."))
+        self.apply_plan_btn = QPushButton(escape_qt_mnemonic(_("vlan_btn_confirm_apply", "Review & Confirm Apply...")))
+        self.apply_plan_btn.setObjectName("SecondaryButton")
+        self.apply_plan_btn.setCursor(Qt.PointingHandCursor)
         self.apply_plan_btn.setEnabled(False)
         self.apply_plan_btn.clicked.connect(self._open_confirm_dialog)
         btn_row.addWidget(self.apply_plan_btn)
         fc_l.addLayout(btn_row)
-        fc_l.addStretch()
 
         prev_card = QFrame()
-        prev_card.setStyleSheet("QFrame { background-color: #1E293B; border: 1px solid #334155; border-radius: 10px; }")
+        prev_card.setObjectName("PanelCard")
         pc_l = QVBoxLayout(prev_card)
         pc_l.setContentsMargins(14, 14, 14, 14)
         self.plan_meta_lbl = QLabel(_("vlan_preview_hint", "Select a target device and generate a vendor-specific CLI plan preview."))
@@ -311,17 +400,22 @@ class VLANView(QWidget):
     @staticmethod
     def _make_kpi_card(title: str, value: str, accent: str) -> QFrame:
         card = QFrame()
-        card.setStyleSheet("QFrame { background-color: #1E293B; border: 1px solid #334155; border-radius: 10px; }")
+        card.setObjectName("KpiCard")
         lay = QVBoxLayout(card)
         lay.setContentsMargins(14, 10, 14, 10)
         lbl_v = QLabel(value)
         lbl_v.setObjectName("kpi_val")
-        lbl_v.setStyleSheet(f"font-size: 20px; font-weight: bold; color: {accent};")
+        lbl_v.setStyleSheet(f"font-size: 18px; font-weight: bold; color: {accent};")
         lbl_t = QLabel(title)
+        lbl_t.setWordWrap(True)
         lbl_t.setStyleSheet("color: #94A3B8; font-size: 11px;")
         lay.addWidget(lbl_v)
         lay.addWidget(lbl_t)
         return card
+
+    def _invalidate_plan(self) -> None:
+        self._last_plan = None
+        self.apply_plan_btn.setEnabled(False)
 
     @staticmethod
     def _set_kpi_value(card: QFrame, val: str) -> None:
@@ -425,9 +519,9 @@ class VLANView(QWidget):
     def _sync_snmp(self) -> None:
         res = self.manager.sync_from_snmp()
         self.refresh()
-        self.plan_meta_lbl.setText(
-            f"SNMP VLAN sync checked {res['devices_checked']} device(s), updated {res['vlans_synced']} VLAN entries."
-        )
+        msg = f"SNMP VLAN sync checked {res['devices_checked']} device(s), updated {res['vlans_synced']} VLAN entries."
+        self.sync_status_lbl.setText(msg)
+        self.plan_meta_lbl.setText(msg)
 
     def _generate_preview(self) -> Optional[Dict[str, Any]]:
         dev_id = self.plan_dev_combo.currentData()
@@ -471,6 +565,8 @@ class VLANView(QWidget):
             if self.ssh_executor:
                 res = self.manager.apply_change_plan(self._last_plan, confirmed=True, executor=self.ssh_executor)
                 self.plan_cli_box.setPlainText(res.get("output", ""))
+            else:
+                self.plan_meta_lbl.setText("Read-only preview ready — wire an active SSH executor to run live.")
             return
         dlg = VLANConfirmDialog(self._last_plan, self)
         if dlg.exec() == QDialog.Accepted:

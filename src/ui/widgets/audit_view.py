@@ -44,33 +44,41 @@ class AuditView(QWidget):
         root.setContentsMargins(20, 16, 20, 16)
         root.setSpacing(12)
 
-        hdr = QHBoxLayout()
-        col = QVBoxLayout()
+        # Header Row 1: Title + Wrapped Subtitle
         t_lbl = QLabel(_("aud_title", "Infrastructure Audit & Change Trail"))
+        t_lbl.setObjectName("Title")
         t_lbl.setStyleSheet("font-size: 20px; font-weight: bold; color: #F8FAFC;")
         s_lbl = QLabel(_("aud_subtitle", "Append-only SQLite audit log with automatic secret redaction and SHA-256 hash verification"))
+        s_lbl.setWordWrap(True)
         s_lbl.setStyleSheet("color: #94A3B8; font-size: 12px;")
-        col.addWidget(t_lbl)
-        col.addWidget(s_lbl)
-        hdr.addLayout(col)
-        hdr.addStretch()
+        root.addWidget(t_lbl)
+        root.addWidget(s_lbl)
 
+        # Header Row 2: Action Buttons
+        hdr_btns = QHBoxLayout()
+        hdr_btns.setSpacing(8)
         self.btn_verify_all = QPushButton(_("aud_btn_verify", "Verify SHA-256 Hashes"))
-        self.btn_verify_all.setProperty("class", "PrimaryButton")
+        self.btn_verify_all.setObjectName("PrimaryButton")
         self.btn_verify_all.clicked.connect(self._verify_all)
         self.btn_exp_csv = QPushButton(_("inv_btn_export_csv", "Export CSV"))
+        self.btn_exp_csv.setObjectName("SecondaryButton")
         self.btn_exp_csv.clicked.connect(self._export_csv)
         self.btn_exp_json = QPushButton(_("aud_btn_json", "Export JSON"))
+        self.btn_exp_json.setObjectName("SecondaryButton")
         self.btn_exp_json.clicked.connect(self._export_json)
         self.btn_refresh = QPushButton(_("common_refresh", "Refresh"))
+        self.btn_refresh.setObjectName("SecondaryButton")
         self.btn_refresh.clicked.connect(self.refresh)
         for b in (self.btn_verify_all, self.btn_exp_csv, self.btn_exp_json, self.btn_refresh):
-            hdr.addWidget(b)
-        root.addLayout(hdr)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setToolTip(b.text())
+            hdr_btns.addWidget(b)
+        hdr_btns.addStretch()
+        root.addLayout(hdr_btns)
 
-        # Filter bar
+        # Filter bar (scoped #FilterBar prevents cascaded label borders)
         bar = QFrame()
-        bar.setStyleSheet("QFrame { background-color: #1E293B; border: 1px solid #334155; border-radius: 10px; }")
+        bar.setObjectName("FilterBar")
         b_l = QHBoxLayout(bar)
         b_l.setContentsMargins(12, 8, 12, 8)
         b_l.setSpacing(10)
@@ -82,14 +90,16 @@ class AuditView(QWidget):
 
         b_l.addWidget(QLabel(_("aud_lbl_tier", "Tier:")))
         self.tier_combo = QComboBox()
+        self.tier_combo.setMinimumWidth(115)
         self.tier_combo.addItem(_("common_all", "All"), "")
         for t in ("SYSTEM", "READ_ONLY", "MODIFYING", "DESTRUCTIVE"):
             self.tier_combo.addItem(t, t)
         self.tier_combo.currentIndexChanged.connect(self.refresh)
         b_l.addWidget(self.tier_combo)
 
-        b_l.addWidget(QLabel(_("inv_col_status", "Result:")))
+        b_l.addWidget(QLabel(_("aud_lbl_result", "Result:")))
         self.result_combo = QComboBox()
+        self.result_combo.setMinimumWidth(110)
         self.result_combo.addItem(_("common_all", "All"), "")
         for r in ("SUCCESS", "BLOCKED", "FAILURE"):
             self.result_combo.addItem(r, r)
@@ -98,20 +108,32 @@ class AuditView(QWidget):
         root.addWidget(bar)
 
         split = QSplitter(Qt.Vertical)
+        split.setChildrenCollapsible(False)
         self.table = QTableWidget(0, 10)
         self.table.setHorizontalHeaderLabels([
             _("bkp_col_ts", "Timestamp"),
             "UID",
             _("aud_col_user", "Operator"),
-            _("inv_col_host", "Device"),
-            _("inv_col_ip", "IP"),
+            _("inv_col_hostname", "Device"),
+            _("site_hdr_ip", "IP"),
             _("aud_col_op", "Operation"),
             _("aud_col_tier", "Tier"),
             _("aud_col_res", "Result"),
             _("aud_col_ticket", "Ticket"),
             _("aud_col_integrity", "Hash Check"),
         ])
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        ahdr = self.table.horizontalHeader()
+        ahdr.setSectionResizeMode(QHeaderView.Interactive)
+        ahdr.setSectionResizeMode(5, QHeaderView.Stretch)
+        self.table.setColumnWidth(0, 128)
+        self.table.setColumnWidth(1, 86)
+        self.table.setColumnWidth(2, 82)
+        self.table.setColumnWidth(3, 102)
+        self.table.setColumnWidth(4, 100)
+        self.table.setColumnWidth(6, 80)
+        self.table.setColumnWidth(7, 74)
+        self.table.setColumnWidth(8, 68)
+        self.table.setColumnWidth(9, 122)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.verticalHeader().setVisible(False)
@@ -125,6 +147,7 @@ class AuditView(QWidget):
             "QTextEdit { background-color: #020617; color: #E2E8F0; font-family: Consolas; font-size: 11px; border: 1px solid #334155; padding: 8px; }"
         )
         split.addWidget(self.detail_box)
+        split.setSizes([280, 180])
         root.addWidget(split, 1)
 
         self.summary_lbl = QLabel("")
@@ -173,12 +196,18 @@ class AuditView(QWidget):
             self.table.setItem(r, 9, v_it)
 
         self.summary_lbl.setText(f"Records: {len(events)} | Hash Check Failures: {tampered}")
+        if not events:
+            self.detail_box.clear()
 
     def _on_row_selected(self) -> None:
         r = self.table.currentRow()
         if r < 0 or r >= len(self._events_cache):
+            self.detail_box.clear()
             return
         ev = self._events_cache[r]
+        d_name = ev.get("device_name") or ""
+        d_ip = ev.get("device_ip") or ""
+        dev_str = f"{d_name} ({d_ip})".strip() if (d_name and d_ip) else (d_name or d_ip or "—")
         payload = {
             "event_uid": ev["event_uid"],
             "timestamp": str(ev["timestamp"]),
@@ -186,7 +215,7 @@ class AuditView(QWidget):
             "operation": ev["operation"],
             "command_tier": ev["command_tier"],
             "result": ev["result"],
-            "device": f"{ev['device_name']} ({ev['device_ip']})",
+            "device": dev_str,
             "ticket_ref": ev["ticket_ref"],
             "previous_value": ev["previous_value"],
             "new_value": ev["new_value"],
@@ -202,17 +231,27 @@ class AuditView(QWidget):
         if failed:
             QMessageBox.critical(self, "Audit Integrity", f"Tampered records detected: {', '.join(failed)}")
         else:
-            QMessageBox.information(self, "Audit Integrity", f"All {len(self._events_cache)} audit record SHA-256 hashes verified.")
+            QMessageBox.information(self, "Audit Integrity", f"All {len(self._events_cache)} displayed audit record SHA-256 hashes verified.")
 
     def _export_csv(self) -> None:
         path, _flt = QFileDialog.getSaveFileName(self, "Export Audit CSV", "audit_trail.csv", "CSV Files (*.csv)")
-        if path:
+        if not path:
+            return
+        try:
             self.audit.export_csv(path, self._events_cache)
+            QMessageBox.information(self, _("msg_success", "Success"), f"Audit CSV exported to:\n{path}")
+        except Exception as exc:
+            QMessageBox.critical(self, _("common_error", "Error"), str(exc))
 
     def _export_json(self) -> None:
         path, _flt = QFileDialog.getSaveFileName(self, "Export Audit JSON", "audit_trail.json", "JSON Files (*.json)")
-        if path:
+        if not path:
+            return
+        try:
             self.audit.export_json(path, self._events_cache)
+            QMessageBox.information(self, _("msg_success", "Success"), f"Audit JSON exported to:\n{path}")
+        except Exception as exc:
+            QMessageBox.critical(self, _("common_error", "Error"), str(exc))
 
     def shutdown(self) -> None:
         return None

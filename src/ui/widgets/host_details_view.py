@@ -1,5 +1,6 @@
 from datetime import datetime
 import platform
+import re
 import subprocess
 from typing import Any, Dict, List, Optional
 
@@ -40,7 +41,7 @@ from core.ping_engine import AsyncPingEngine
 from core.scanner import Scanner
 from core.tools import NetworkTools
 from utils.db import DatabaseManager
-from utils.i18n import _
+from utils.i18n import _, escape_qt_mnemonic
 from utils.monitoring_export import export_incidents_csv, export_incidents_pdf
 
 
@@ -91,28 +92,41 @@ class _DiagWorker(QThread):
                     cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     text=True, encoding=enc, errors="replace", creationflags=cflags,
                 )
-                out, _ = self._proc.communicate(timeout=12)
-                self.output_ready.emit(out or "No output.")
+                try:
+                    out, _ = self._proc.communicate(timeout=12)
+                except subprocess.TimeoutExpired:
+                    self._proc.kill()
+                    out, _ = self._proc.communicate()
+                if not self._cancelled:
+                    self.output_ready.emit(out or "No output.")
             elif self.action == "tracert":
                 cmd = ["tracert", "-d", "-w", "1500", clean_target] if is_win else ["traceroute", "-n", clean_target]
                 self._proc = subprocess.Popen(
                     cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     text=True, encoding=enc, errors="replace", creationflags=cflags,
                 )
-                out, _ = self._proc.communicate(timeout=30)
-                self.output_ready.emit(out or "No output.")
+                try:
+                    out, _ = self._proc.communicate(timeout=30)
+                except subprocess.TimeoutExpired:
+                    self._proc.kill()
+                    out, _ = self._proc.communicate()
+                if not self._cancelled:
+                    self.output_ready.emit(out or "No output.")
             elif self.action == "dns":
                 out = NetworkTools.nslookup(clean_target)
-                self.output_ready.emit(out or "No DNS output.")
+                if not self._cancelled:
+                    self.output_ready.emit(out or "No DNS output.")
             elif self.action == "ports":
                 scanner = Scanner()
                 opened = scanner.scan_ports(clean_target, fast_mode=True)
-                if opened:
-                    self.output_ready.emit(f"Open common TCP ports on {clean_target}: {', '.join(map(str, opened))}")
-                else:
-                    self.output_ready.emit(f"No common TCP ports open on {clean_target}.")
+                if not self._cancelled:
+                    if opened:
+                        self.output_ready.emit(f"Open common TCP ports on {clean_target}: {', '.join(map(str, opened))}")
+                    else:
+                        self.output_ready.emit(f"No common TCP ports open on {clean_target}.")
         except Exception as e:
-            self.output_ready.emit(f"Diagnostic error: {e}")
+            if not self._cancelled:
+                self.output_ready.emit(f"Diagnostic error: {e}")
 
 
 class HostDetailsDialog(QDialog):
@@ -161,7 +175,7 @@ class HostDetailsDialog(QDialog):
 
         # Header banner
         banner = QFrame()
-        banner.setObjectName("Card")
+        banner.setObjectName("PanelCard")
         banner_layout = QHBoxLayout(banner)
         banner_layout.setContentsMargins(16, 10, 16, 10)
 
@@ -247,14 +261,17 @@ class HostDetailsDialog(QDialog):
         grid.addWidget(self.up_plot, 1, 1)
         layout.addLayout(grid, 1)
 
-        self.tabs.addTab(tab, _("mon_details_tab_charts", "Live Stats & Charts"))
+        self.tabs.addTab(tab, escape_qt_mnemonic(_("mon_details_tab_charts", "Live Stats & Charts")))
 
     @staticmethod
     def _make_chart(title: str, line_hex: str, brush_rgba, y_range=None):
         plot = pg.PlotWidget()
+        plot.setBackground("#0F172A")
+        plot.setMenuEnabled(False)
         plot.setTitle(title, color="#F1F5F9", size="10pt")
+        plot.getAxis("bottom").setTextPen("#94A3B8")
+        plot.getAxis("left").setTextPen("#94A3B8")
         plot.showGrid(x=True, y=True, alpha=0.25)
-        plot.setStyleSheet("border: 1px solid #334155; border-radius: 8px;")
         if y_range is not None:
             plot.setYRange(y_range[0], y_range[1], padding=0.05)
         pen = pg.mkPen(color=line_hex, width=2)
@@ -264,13 +281,22 @@ class HostDetailsDialog(QDialog):
     def _style_period_buttons(self) -> None:
         for p, btn in self.period_buttons.items():
             if p == self._current_period:
-                btn.setStyleSheet("background-color: #4F46E5; color: #FFFFFF; border-radius: 6px; font-weight: bold;")
+                btn.setStyleSheet(
+                    "QPushButton { background-color: #4F46E5; color: #FFFFFF; border: none; border-radius: 6px; font-weight: 700; padding: 4px 8px; }"
+                )
             else:
-                btn.setStyleSheet("background-color: #1E293B; color: #94A3B8; border: 1px solid #334155; border-radius: 6px;")
+                btn.setStyleSheet(
+                    "QPushButton { background-color: #1E293B; color: #CBD5E1; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; }"
+                    "QPushButton:hover { border-color: #6366F1; color: #FFFFFF; background-color: #242F42; }"
+                )
 
     def _set_period(self, period: str) -> None:
         self._current_period = period
         self._style_period_buttons()
+        self.refresh_charts()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
         self.refresh_charts()
 
     def refresh_charts(self) -> None:
@@ -278,6 +304,10 @@ class HostDetailsDialog(QDialog):
             return
         series = self.stats_service.get_chart_series(self.host_address, period=self._current_period)
         if not series:
+            self.lat_curve.setData([], [])
+            self.loss_curve.setData([], [])
+            self.jit_curve.setData([], [])
+            self.up_curve.setData([], [])
             return
         xs = list(range(len(series)))
         self.lat_curve.setData(xs, [pt["latency_ms"] for pt in series])
@@ -301,10 +331,17 @@ class HostDetailsDialog(QDialog):
             _("inc_col_duration", "Duration"),
             _("inc_col_comments", "Comments"),
         ])
-        self.inc_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        ih = self.inc_table.horizontalHeader()
+        ih.setSectionResizeMode(QHeaderView.Stretch)
+        ih.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        ih.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        ih.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        ih.setSectionResizeMode(5, QHeaderView.ResizeToContents)
         self.inc_table.verticalHeader().setVisible(False)
+        self.inc_table.verticalHeader().setDefaultSectionSize(34)
         self.inc_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.inc_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.inc_table.setAlternatingRowColors(True)
         self.inc_table.setEditTriggers(QTableWidget.NoEditTriggers)
         layout.addWidget(self.inc_table, 1)
 
@@ -312,38 +349,31 @@ class HostDetailsDialog(QDialog):
         btn_row.setSpacing(8)
         ack_btn = QPushButton(_("inc_btn_ack", "Acknowledge"))
         ack_btn.setObjectName("PrimaryButton")
-        ack_btn.setFixedHeight(34)
         ack_btn.setCursor(Qt.PointingHandCursor)
         ack_btn.clicked.connect(self._ack_host_incident)
 
         comment_btn = QPushButton(_("inc_btn_comment", "Add Comment"))
         comment_btn.setObjectName("SecondaryButton")
-        comment_btn.setFixedHeight(34)
         comment_btn.setCursor(Qt.PointingHandCursor)
         comment_btn.clicked.connect(self._comment_host_incident)
 
         close_btn = QPushButton(_("inc_btn_close", "Close Incident"))
         close_btn.setObjectName("SecondaryButton")
-        close_btn.setFixedHeight(34)
         close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.clicked.connect(self._close_host_incident)
 
         self.del_inc_btn = QPushButton(_("inc_btn_delete", "Delete Incident"))
         self.del_inc_btn.setObjectName("DangerButton")
-        self.del_inc_btn.setFixedHeight(34)
-        self.del_inc_btn.setStyleSheet("padding: 0px 12px;")
         self.del_inc_btn.setCursor(Qt.PointingHandCursor)
         self.del_inc_btn.clicked.connect(self._delete_host_incident)
 
         export_csv_btn = QPushButton(_("inc_btn_export_csv", "Export CSV"))
         export_csv_btn.setObjectName("SecondaryButton")
-        export_csv_btn.setFixedHeight(34)
         export_csv_btn.setCursor(Qt.PointingHandCursor)
         export_csv_btn.clicked.connect(self._export_host_incidents_csv)
 
         export_pdf_btn = QPushButton(_("inc_btn_export_pdf", "Export PDF"))
         export_pdf_btn.setObjectName("SecondaryButton")
-        export_pdf_btn.setFixedHeight(34)
         export_pdf_btn.setCursor(Qt.PointingHandCursor)
         export_pdf_btn.clicked.connect(self._export_host_incidents_pdf)
 
@@ -459,8 +489,9 @@ class HostDetailsDialog(QDialog):
     def _export_host_incidents_csv(self) -> None:
         rows = self.incident_manager.get_incidents(host_address=self.host_address, limit=200)
         self._host_incident_rows = rows
+        safe_addr = re.sub(r'[<>:"/\\|?*]', "_", str(self.host_address))
         path, _f = QFileDialog.getSaveFileName(
-            self, _("inc_btn_export_csv", "Export CSV"), f"BahaaIT_Incidents_{self.host_address}.csv", "CSV Files (*.csv)"
+            self, _("inc_btn_export_csv", "Export CSV"), f"BahaaIT_Incidents_{safe_addr}.csv", "CSV Files (*.csv)"
         )
         if not path:
             return
@@ -473,8 +504,9 @@ class HostDetailsDialog(QDialog):
     def _export_host_incidents_pdf(self) -> None:
         rows = self.incident_manager.get_incidents(host_address=self.host_address, limit=200)
         self._host_incident_rows = rows
+        safe_addr = re.sub(r'[<>:"/\\|?*]', "_", str(self.host_address))
         path, _f = QFileDialog.getSaveFileName(
-            self, _("inc_btn_export_pdf", "Export PDF"), f"BahaaIT_Incidents_{self.host_address}.pdf", "PDF Files (*.pdf)"
+            self, _("inc_btn_export_pdf", "Export PDF"), f"BahaaIT_Incidents_{safe_addr}.pdf", "PDF Files (*.pdf)"
         )
         if not path:
             return
@@ -493,6 +525,7 @@ class HostDetailsDialog(QDialog):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setStyleSheet("background: transparent;")
 
         scroll_body = QWidget()
@@ -594,11 +627,11 @@ class HostDetailsDialog(QDialog):
         btn_row = QHBoxLayout()
         save_btn = QPushButton(_("mon_host_cfg_save", "Save Host Settings"))
         save_btn.setObjectName("PrimaryButton")
-        save_btn.setFixedHeight(36)
+        save_btn.setCursor(Qt.PointingHandCursor)
         save_btn.clicked.connect(self._save_host_settings)
         reset_btn = QPushButton(_("mon_host_cfg_reset", "Reset to Global Defaults"))
         reset_btn.setObjectName("SecondaryButton")
-        reset_btn.setFixedHeight(36)
+        reset_btn.setCursor(Qt.PointingHandCursor)
         reset_btn.clicked.connect(self._reset_host_settings)
         btn_row.addWidget(save_btn)
         btn_row.addWidget(reset_btn)
@@ -664,6 +697,8 @@ class HostDetailsDialog(QDialog):
         layout.setSpacing(10)
 
         btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        self._diag_buttons = []
         for action, key, fallback in (
             ("ping", "mon_diag_ping", "Ping (4x)"),
             ("tracert", "mon_diag_tracert", "Traceroute"),
@@ -675,6 +710,7 @@ class HostDetailsDialog(QDialog):
             btn.setCursor(Qt.PointingHandCursor)
             btn.clicked.connect(lambda checked=False, act=action: self._run_diag(act))
             btn_row.addWidget(btn)
+            self._diag_buttons.append(btn)
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
@@ -689,11 +725,21 @@ class HostDetailsDialog(QDialog):
     def _run_diag(self, action: str) -> None:
         if self._diag_worker and self._diag_worker.isRunning():
             return
+        for b in self._diag_buttons:
+            b.setEnabled(False)
         self.diag_output.setPlainText(_("mon_diag_running", "Running {} on {}...").format(action.upper(), self.host_address))
-        self._diag_worker = _DiagWorker(action, self.host_address, self)
-        self._diag_worker.output_ready.connect(self.diag_output.setPlainText)
-        self._diag_worker.finished.connect(self._diag_worker.deleteLater)
-        self._diag_worker.start()
+        worker = _DiagWorker(action, self.host_address, self)
+        self._diag_worker = worker
+        worker.output_ready.connect(self.diag_output.setPlainText)
+        worker.finished.connect(lambda w=worker: self._on_diag_finished(w))
+        worker.start()
+
+    def _on_diag_finished(self, worker: _DiagWorker) -> None:
+        if self._diag_worker is worker:
+            self._diag_worker = None
+        for b in getattr(self, "_diag_buttons", []):
+            b.setEnabled(True)
+        worker.deleteLater()
 
     def update_live_snapshot(self, snap: Dict[str, Any]) -> None:
         if not snap:

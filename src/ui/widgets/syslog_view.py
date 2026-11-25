@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -41,7 +42,7 @@ _SEVERITY_COLORS = {
     4: "#F59E0B",  # Warning
     5: "#38BDF8",  # Notice
     6: "#CBD5E1",  # Informational
-    7: "#64748B",  # Debug
+    7: "#94A3B8",  # Debug
 }
 
 _SYSLOG_CATEGORIES = [
@@ -115,51 +116,37 @@ class SyslogView(QWidget):
         root.setContentsMargins(24, 22, 24, 22)
         root.setSpacing(12)
 
-        # Header & Listener Controls
+        # Header Row (Full Title + Badge + Primary Listener Actions)
         hdr = QHBoxLayout()
-        hdr.setSpacing(8)
+        hdr.setSpacing(10)
         title = QLabel(_("syslog_title", "Centralized Syslog Monitor"))
         title.setObjectName("Title")
+        title.setWordWrap(True)
         title.setStyleSheet("font-size: 24px; font-weight: 800; color: #FFFFFF; margin-bottom: 0px;")
-        hdr.addWidget(title)
-        hdr.addStretch()
+        hdr.addWidget(title, 1)
 
         self.status_badge = QLabel(_("syslog_status_stopped", "STOPPED"))
         self.status_badge.setStyleSheet(
-            "background-color: #334155; color: #CBD5E1; border-radius: 8px; padding: 6px 12px; "
-            "font-weight: bold; font-size: 11px; margin-bottom: 0px;"
+            "background-color: #334155; color: #CBD5E1; border-radius: 8px; padding: 5px 12px; "
+            "font-weight: 700; font-size: 11px; margin-bottom: 0px;"
         )
         hdr.addWidget(self.status_badge)
 
-        bind_lbl = QLabel(_("syslog_bind_label", "Bind:"))
-        bind_lbl.setStyleSheet("margin-bottom: 0px;")
-        hdr.addWidget(bind_lbl)
-        self.bind_edit = QLineEdit(self._init_bind)
-        self.bind_edit.setFixedWidth(115)
-        hdr.addWidget(self.bind_edit)
-
-        port_lbl = QLabel(_("syslog_port_label", "UDP Port:"))
-        port_lbl.setStyleSheet("margin-bottom: 0px;")
-        hdr.addWidget(port_lbl)
-        self.port_spin = QSpinBox()
-        self.port_spin.setRange(0, 65535)
-        self.port_spin.setValue(self._init_port)
-        self.port_spin.setFixedWidth(92)
-        self.port_spin.setToolTip("Standard UDP 514 (Admin) or 5514 (Non-Admin alternative)")
-        hdr.addWidget(self.port_spin)
-
         self.btn_toggle_srv = QPushButton(_("syslog_btn_start", "Start Listener"))
         self.btn_toggle_srv.setObjectName("PrimaryButton")
+        self.btn_toggle_srv.setCursor(Qt.PointingHandCursor)
         self.btn_toggle_srv.clicked.connect(self.toggle_listener)
         hdr.addWidget(self.btn_toggle_srv)
 
         self.btn_pause = QPushButton(_("syslog_btn_pause", "Pause Stream"))
         self.btn_pause.setObjectName("SecondaryButton")
+        self.btn_pause.setCursor(Qt.PointingHandCursor)
         self.btn_pause.clicked.connect(self.toggle_pause)
         hdr.addWidget(self.btn_pause)
 
         self.btn_firewall = QPushButton(_("syslog_btn_firewall", "Windows Firewall Guide"))
         self.btn_firewall.setObjectName("SecondaryButton")
+        self.btn_firewall.setCursor(Qt.PointingHandCursor)
         self.btn_firewall.clicked.connect(self.show_firewall_guide)
         hdr.addWidget(self.btn_firewall)
         root.addLayout(hdr)
@@ -184,23 +171,57 @@ class SyslogView(QWidget):
         self.st_mal = self._make_stat_badge(stats_row, _("syslog_stat_malformed", "Malformed"), "0", "#FB7185")
         root.addLayout(stats_row)
 
-        # Filter & Export Toolbar
-        filt = QHBoxLayout()
-        filt.setSpacing(8)
+        # 2-Row Listener + Filter + Export Bar inside FilterBar (no squished 2-letter inputs!)
+        ctrl_frame = QFrame()
+        ctrl_frame.setObjectName("FilterBar")
+        ctrl_lay = QVBoxLayout(ctrl_frame)
+        ctrl_lay.setContentsMargins(12, 8, 12, 8)
+        ctrl_lay.setSpacing(8)
+
+        row1 = QHBoxLayout()
+        row1.setSpacing(8)
+        bind_lbl = QLabel(_("syslog_bind_label", "Bind:"))
+        bind_lbl.setStyleSheet("margin-bottom: 0px; color: #94A3B8; font-weight: 600;")
+        row1.addWidget(bind_lbl)
+        self.bind_edit = QLineEdit(self._init_bind)
+        self.bind_edit.setFixedWidth(120)
+        row1.addWidget(self.bind_edit)
+
+        port_lbl = QLabel(_("syslog_port_label", "UDP Port:"))
+        port_lbl.setStyleSheet("margin-bottom: 0px; color: #94A3B8; font-weight: 600;")
+        row1.addWidget(port_lbl)
+        self.port_spin = QSpinBox()
+        self.port_spin.setRange(0, 65535)
+        self.port_spin.setValue(self._init_port)
+        self.port_spin.setFixedWidth(92)
+        self.port_spin.setToolTip("Standard UDP 514 (Admin) or 5514 (Non-Admin alternative)")
+        row1.addWidget(self.port_spin)
+
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText(_("syslog_filter_search", "Search message..."))
-        filt.addWidget(self.search_edit, 2)
+        self.search_edit.setMinimumWidth(180)
+        self.search_edit.returnPressed.connect(self.refresh_table)
+        row1.addWidget(self.search_edit, 2)
 
         self.ip_edit = QLineEdit()
         self.ip_edit.setPlaceholderText(_("syslog_filter_ip", "Source IP..."))
-        self.ip_edit.setMaximumWidth(130)
-        filt.addWidget(self.ip_edit)
+        self.ip_edit.setMinimumWidth(120)
+        self.ip_edit.returnPressed.connect(self.refresh_table)
+        row1.addWidget(self.ip_edit, 1)
 
         self.host_edit = QLineEdit()
         self.host_edit.setPlaceholderText(_("syslog_filter_host", "Hostname..."))
-        self.host_edit.setMaximumWidth(130)
-        filt.addWidget(self.host_edit)
+        self.host_edit.setMinimumWidth(120)
+        self.host_edit.returnPressed.connect(self.refresh_table)
+        row1.addWidget(self.host_edit, 1)
+        ctrl_lay.addLayout(row1)
 
+        row2 = QHBoxLayout()
+        row2.setSpacing(8)
+
+        sev_lbl = QLabel(_("syslog_filter_sev", "Severity:"))
+        sev_lbl.setStyleSheet("margin-bottom: 0px; color: #94A3B8; font-weight: 600;")
+        row2.addWidget(sev_lbl)
         self.sev_combo = QComboBox()
         self.sev_combo.addItem(_("snmp_filter_all", "All"), None)
         self.sev_combo.addItem("<= Critical (2)", ("MAX", 2))
@@ -208,38 +229,54 @@ class SyslogView(QWidget):
         self.sev_combo.addItem("<= Warning (4)", ("MAX", 4))
         for sid, sname in SYSLOG_SEVERITIES.items():
             self.sev_combo.addItem(f"{sid} — {sname}", ("EXACT", sid))
-        filt.addWidget(self.sev_combo)
+        self.sev_combo.currentIndexChanged.connect(self.refresh_table)
+        row2.addWidget(self.sev_combo)
 
+        cat_lbl = QLabel(_("syslog_filter_cat", "Category:"))
+        cat_lbl.setStyleSheet("margin-bottom: 0px; color: #94A3B8; font-weight: 600;")
+        row2.addWidget(cat_lbl)
         self.cat_combo = QComboBox()
         for cat in _SYSLOG_CATEGORIES:
-            self.cat_combo.addItem(cat, cat)
-        filt.addWidget(self.cat_combo)
+            lbl_cat = _("snmp_filter_all", "All") if cat == "ALL" else cat
+            self.cat_combo.addItem(lbl_cat, cat)
+        self.cat_combo.currentIndexChanged.connect(self.refresh_table)
+        row2.addWidget(self.cat_combo)
 
+        per_lbl = QLabel(_("syslog_filter_period", "Period:"))
+        per_lbl.setStyleSheet("margin-bottom: 0px; color: #94A3B8; font-weight: 600;")
+        row2.addWidget(per_lbl)
         self.period_combo = QComboBox()
         self.period_combo.addItem("1h", 1)
         self.period_combo.addItem("24h", 24)
         self.period_combo.addItem("7d", 24 * 7)
         self.period_combo.addItem(_("snmp_filter_all", "All"), 0)
         self.period_combo.setCurrentIndex(1)
-        filt.addWidget(self.period_combo)
+        self.period_combo.currentIndexChanged.connect(self.refresh_table)
+        row2.addWidget(self.period_combo)
+
+        row2.addStretch()
 
         btn_apply = QPushButton(_("syslog_btn_apply", "Apply Filter"))
         btn_apply.setObjectName("SecondaryButton")
+        btn_apply.setCursor(Qt.PointingHandCursor)
         btn_apply.clicked.connect(self.refresh_table)
-        filt.addWidget(btn_apply)
+        row2.addWidget(btn_apply)
 
         btn_csv = QPushButton(_("syslog_btn_export_csv", "Export CSV"))
         btn_csv.setObjectName("SecondaryButton")
-        btn_csv.clicked.connect(lambda: self.export_csv())
-        filt.addWidget(btn_csv)
+        btn_csv.setCursor(Qt.PointingHandCursor)
+        btn_csv.clicked.connect(lambda: self.export_csv(show_dialog=True))
+        row2.addWidget(btn_csv)
 
         btn_json = QPushButton(_("syslog_btn_export_json", "Export JSON"))
         btn_json.setObjectName("SecondaryButton")
-        btn_json.clicked.connect(lambda: self.export_json())
-        filt.addWidget(btn_json)
-        root.addLayout(filt)
+        btn_json.setCursor(Qt.PointingHandCursor)
+        btn_json.clicked.connect(lambda: self.export_json(show_dialog=True))
+        row2.addWidget(btn_json)
+        ctrl_lay.addLayout(row2)
+        root.addWidget(ctrl_frame)
 
-        # Events Table (7 columns)
+        # Events Table (7 columns) + Detail Inspector inside QSplitter
         headers = [
             _("syslog_col_ts", "Timestamp"),
             _("syslog_col_ip", "Source IP"),
@@ -254,41 +291,54 @@ class SyslogView(QWidget):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Stretch)
+        self.table.verticalHeader().setDefaultSectionSize(34)
+        th = self.table.horizontalHeader()
+        th.setSectionResizeMode(QHeaderView.ResizeToContents)
+        th.setSectionResizeMode(6, QHeaderView.Stretch)
         self.table.itemSelectionChanged.connect(self._on_row_selected)
-        root.addWidget(self.table, 3)
 
-        # Detail Inspector
+        det_container = QWidget()
+        det_lay = QVBoxLayout(det_container)
+        det_lay.setContentsMargins(0, 4, 0, 0)
+        det_lay.setSpacing(6)
         det_hdr = QLabel(_("syslog_detail_hdr", "SELECTED SYSLOG EVENT DETAILS"))
-        det_hdr.setStyleSheet("color: #06B6D4; font-weight: bold; font-size: 11px; margin-bottom: 0px;")
-        root.addWidget(det_hdr)
+        det_hdr.setStyleSheet("color: #06B6D4; font-weight: 700; font-size: 11px; margin-bottom: 0px;")
+        det_lay.addWidget(det_hdr)
 
         self.detail_view = QTextEdit()
         self.detail_view.setReadOnly(True)
-        self.detail_view.setMaximumHeight(115)
+        self.detail_view.setMinimumHeight(76)
         self.detail_view.setStyleSheet(
-            "QTextEdit { background-color: #1E293B; color: #F1F5F9; border: 1px solid #334155; border-radius: 8px; padding: 8px; font-family: Consolas, monospace; font-size: 12px; }"
+            "QTextEdit { background-color: #0B1220; color: #F1F5F9; border: 1px solid #334155; border-radius: 8px; padding: 8px; font-family: Consolas, monospace; font-size: 12px; }"
         )
-        root.addWidget(self.detail_view, 1)
+        det_lay.addWidget(self.detail_view, 1)
+
+        splitter = QSplitter(Qt.Vertical)
+        splitter.setChildrenCollapsible(False)
+        splitter.addWidget(self.table)
+        splitter.addWidget(det_container)
+        splitter.setSizes([310, 115])
+        root.addWidget(splitter, 1)
 
     @staticmethod
     def _make_stat_badge(layout: QHBoxLayout, title: str, init_val: str, color: str) -> QLabel:
         frame = QFrame()
-        frame.setObjectName("Card")
+        frame.setObjectName("KpiCard")
         fl = QVBoxLayout(frame)
         fl.setContentsMargins(10, 8, 10, 8)
         fl.setSpacing(2)
         val_lbl = QLabel(init_val)
         val_lbl.setAlignment(Qt.AlignCenter)
         val_lbl.setStyleSheet(f"font-size: 17px; font-weight: 800; color: {color}; margin-bottom: 0px;")
-        t_lbl = QLabel(title)
+        t_lbl = QLabel(title.upper())
         t_lbl.setAlignment(Qt.AlignCenter)
-        t_lbl.setStyleSheet("font-size: 10px; color: #94A3B8; font-weight: 700; text-transform: uppercase; margin-bottom: 0px;")
+        t_lbl.setWordWrap(True)
+        t_lbl.setStyleSheet("font-size: 11px; color: #94A3B8; font-weight: 700; margin-bottom: 0px;")
         fl.addWidget(val_lbl)
         fl.addWidget(t_lbl)
-        layout.addWidget(frame)
+        layout.addWidget(frame, 1)
         return val_lbl
 
     def start_listener(self) -> None:
@@ -328,19 +378,23 @@ class SyslogView(QWidget):
             self.refresh_table()
 
     def _on_server_started(self, _addr: str, actual_port: int) -> None:
+        self.bind_edit.setEnabled(False)
+        self.port_spin.setEnabled(False)
         self.btn_toggle_srv.setText(_("syslog_btn_stop", "Stop Listener"))
         self.status_badge.setText(_("syslog_status_listening", "LISTENING :{}").format(actual_port))
         self.status_badge.setStyleSheet(
             "background-color: rgba(16,185,129,0.2); color: #10B981; border: 1px solid #10B981; "
-            "border-radius: 8px; padding: 6px 12px; font-weight: bold; font-size: 11px; margin-bottom: 0px;"
+            "border-radius: 8px; padding: 5px 12px; font-weight: 700; font-size: 11px; margin-bottom: 0px;"
         )
 
     def _on_server_stopped(self) -> None:
+        self.bind_edit.setEnabled(True)
+        self.port_spin.setEnabled(True)
         self.btn_toggle_srv.setText(_("syslog_btn_start", "Start Listener"))
         self.status_badge.setText(_("syslog_status_stopped", "STOPPED"))
         self.status_badge.setStyleSheet(
-            "background-color: #334155; color: #CBD5E1; border-radius: 8px; padding: 6px 12px; "
-            "font-weight: bold; font-size: 11px; margin-bottom: 0px;"
+            "background-color: #334155; color: #CBD5E1; border-radius: 8px; padding: 5px 12px; "
+            "font-weight: 700; font-size: 11px; margin-bottom: 0px;"
         )
 
     def _on_server_error(self, msg: str) -> None:
@@ -420,6 +474,7 @@ class SyslogView(QWidget):
 
     def _render_table(self, rows: List[Dict[str, Any]]) -> None:
         self.table.setRowCount(0)
+        self.detail_view.clear()
         for ev in rows[:500]:
             r = self.table.rowCount()
             self.table.insertRow(r)
@@ -468,23 +523,23 @@ class SyslogView(QWidget):
         QGuiApplication.clipboard().setText(g["powershell_cmd"])
         QMessageBox.information(self, _("syslog_fw_title", "Windows Firewall & Privilege Guide"), body)
 
-    def export_csv(self, file_path: Optional[str] = None) -> int:
+    def export_csv(self, file_path: Optional[str] = None, show_dialog: bool = False) -> int:
         if not file_path:
             file_path, _f = QFileDialog.getSaveFileName(self, "Export Syslog CSV", "syslog_events.csv", "CSV (*.csv)")
         if not file_path:
             return 0
         count = export_syslog_csv(self._displayed_events, file_path)
-        if self.sender() is not None and not isinstance(self.sender(), type(None)):
+        if show_dialog:
             QMessageBox.information(self, _("msg_success", "Success"), _("syslog_export_ok", "Exported {} Syslog event(s).").format(count))
         return count
 
-    def export_json(self, file_path: Optional[str] = None) -> int:
+    def export_json(self, file_path: Optional[str] = None, show_dialog: bool = False) -> int:
         if not file_path:
             file_path, _f = QFileDialog.getSaveFileName(self, "Export Syslog JSON", "syslog_events.json", "JSON (*.json)")
         if not file_path:
             return 0
         count = export_syslog_json(self._displayed_events, file_path)
-        if self.sender() is not None and not isinstance(self.sender(), type(None)):
+        if show_dialog:
             QMessageBox.information(self, _("msg_success", "Success"), _("syslog_export_ok", "Exported {} Syslog event(s).").format(count))
         return count
 

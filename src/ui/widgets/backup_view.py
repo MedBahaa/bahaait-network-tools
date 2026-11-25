@@ -1,9 +1,10 @@
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -17,6 +18,8 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QSplitter,
     QTableWidget,
@@ -34,7 +37,7 @@ from core.config_templates import apply_template, list_templates, render_templat
 from core.inventory_manager import InventoryManager
 from core.site_manager import SiteManager
 from utils.db import DatabaseManager
-from utils.i18n import _
+from utils.i18n import _, escape_qt_mnemonic
 
 
 class BackupWorker(QThread):
@@ -87,7 +90,10 @@ class RestoreConfirmDialog(QDialog):
         super().__init__(parent)
         self.plan = plan
         self.setWindowTitle(_("bkp_restore_dlg_title", "Confirm Controlled Configuration Restore"))
-        self.setMinimumSize(640, 500)
+        screen = QApplication.primaryScreen().availableGeometry() if QApplication.primaryScreen() else None
+        max_h = int(screen.height() * 0.85) if screen else 640
+        self.setMinimumSize(600, min(500, max_h))
+        self.setMaximumHeight(max_h)
         self.setStyleSheet("QDialog { background-color: #0F172A; color: #F1F5F9; }")
 
         root = QVBoxLayout(self)
@@ -126,12 +132,19 @@ class RestoreConfirmDialog(QDialog):
         self.confirm_chk = QCheckBox(
             _("bkp_restore_chk", "I verify device identity/compatibility and confirm executing this configuration restore.")
         )
+        self.confirm_chk.setCursor(Qt.PointingHandCursor)
         root.addWidget(self.confirm_chk)
 
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         ok_b = btns.button(QDialogButtonBox.Ok)
+        cancel_b = btns.button(QDialogButtonBox.Cancel)
         ok_b.setText(_("bkp_btn_exec_restore", "Execute Controlled Restore"))
+        ok_b.setObjectName("DangerButton")
+        ok_b.setCursor(Qt.PointingHandCursor)
         ok_b.setEnabled(False)
+        if cancel_b:
+            cancel_b.setObjectName("SecondaryButton")
+            cancel_b.setCursor(Qt.PointingHandCursor)
         self.confirm_chk.toggled.connect(ok_b.setEnabled)
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
@@ -148,7 +161,10 @@ class TemplateConfirmDialog(QDialog):
         super().__init__(parent)
         self.preview = preview
         self.setWindowTitle(_("tpl_confirm_title", "Confirm Template Application"))
-        self.setMinimumSize(560, 440)
+        screen = QApplication.primaryScreen().availableGeometry() if QApplication.primaryScreen() else None
+        max_h = int(screen.height() * 0.85) if screen else 640
+        self.setMinimumSize(560, min(440, max_h))
+        self.setMaximumHeight(max_h)
         self.setStyleSheet("QDialog { background-color: #0F172A; color: #F1F5F9; }")
 
         root = QVBoxLayout(self)
@@ -179,11 +195,18 @@ class TemplateConfirmDialog(QDialog):
         self.confirm_chk = QCheckBox(
             _("tpl_confirm_chk", "I have previewed these commands and confirm applying this template.")
         )
+        self.confirm_chk.setCursor(Qt.PointingHandCursor)
         root.addWidget(self.confirm_chk)
 
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         ok_b = btns.button(QDialogButtonBox.Ok)
+        cancel_b = btns.button(QDialogButtonBox.Cancel)
+        ok_b.setObjectName("DangerButton" if str(preview.get("risk_tier")) == "DESTRUCTIVE" else "PrimaryButton")
+        ok_b.setCursor(Qt.PointingHandCursor)
         ok_b.setEnabled(False)
+        if cancel_b:
+            cancel_b.setObjectName("SecondaryButton")
+            cancel_b.setCursor(Qt.PointingHandCursor)
         self.confirm_chk.toggled.connect(ok_b.setEnabled)
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
@@ -201,10 +224,12 @@ class BackupView(QWidget):
         db: Optional[DatabaseManager] = None,
         base_dir: Optional[str] = None,
         ssh_transport: Optional[Callable[..., Tuple[int, str, str]]] = None,
+        config_manager: Any = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.db = db or DatabaseManager()
+        self.config = config_manager
         self.audit = AuditLogger(self.db)
         self.site_manager = SiteManager(self.db, audit_logger=self.audit)
         self.inventory = InventoryManager(self.db, audit_logger=self.audit, site_manager=self.site_manager)
@@ -221,47 +246,60 @@ class BackupView(QWidget):
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 16, 20, 16)
-        root.setSpacing(12)
+        root.setSpacing(10)
 
-        hdr = QHBoxLayout()
-        t_col = QVBoxLayout()
+        # Header Row 1: Title + Wrapped Subtitle
         lbl_t = QLabel(_("bkp_title", "Configuration Backup, Diff & Templates"))
+        lbl_t.setObjectName("Title")
         lbl_t.setStyleSheet("font-size: 20px; font-weight: bold; color: #F8FAFC;")
         lbl_s = QLabel(_("bkp_subtitle", "DPAPI-encrypted backups, SHA-256 tamper protection, visual diff & controlled restore"))
+        lbl_s.setWordWrap(True)
         lbl_s.setStyleSheet("color: #94A3B8; font-size: 12px;")
-        t_col.addWidget(lbl_t)
-        t_col.addWidget(lbl_s)
-        hdr.addLayout(t_col)
-        hdr.addStretch()
+        root.addWidget(lbl_t)
+        root.addWidget(lbl_s)
 
+        # Header Row 2: Action Buttons
+        hdr_btns = QHBoxLayout()
+        hdr_btns.setSpacing(8)
         self.btn_bkp_dev = QPushButton(_("bkp_btn_device", "Backup Selected Device"))
-        self.btn_bkp_dev.setProperty("class", "PrimaryButton")
+        self.btn_bkp_dev.setObjectName("PrimaryButton")
         self.btn_bkp_dev.clicked.connect(self._run_device_backup)
-        hdr.addWidget(self.btn_bkp_dev)
+        hdr_btns.addWidget(self.btn_bkp_dev)
 
         self.btn_bkp_site = QPushButton(_("bkp_btn_site", "Backup Site Batch"))
+        self.btn_bkp_site.setObjectName("SecondaryButton")
         self.btn_bkp_site.clicked.connect(self._run_site_backup)
-        hdr.addWidget(self.btn_bkp_site)
+        hdr_btns.addWidget(self.btn_bkp_site)
 
         self.refresh_btn = QPushButton(_("common_refresh", "Refresh"))
+        self.refresh_btn.setObjectName("SecondaryButton")
         self.refresh_btn.clicked.connect(self.refresh)
-        hdr.addWidget(self.refresh_btn)
-        root.addLayout(hdr)
+        hdr_btns.addWidget(self.refresh_btn)
 
-        # Toolbar filters
+        for b in (self.btn_bkp_dev, self.btn_bkp_site, self.refresh_btn):
+            b.setCursor(Qt.PointingHandCursor)
+            b.setToolTip(b.text())
+        hdr_btns.addStretch()
+        root.addLayout(hdr_btns)
+
+        # Filter Toolbar (scoped #FilterBar avoids cascading label borders)
         bar = QFrame()
-        bar.setStyleSheet("QFrame { background-color: #1E293B; border: 1px solid #334155; border-radius: 10px; }")
+        bar.setObjectName("FilterBar")
         bar_l = QHBoxLayout(bar)
         bar_l.setContentsMargins(12, 8, 12, 8)
         bar_l.setSpacing(10)
 
         bar_l.addWidget(QLabel(_("topo_lbl_site", "Site:")))
         self.site_combo = QComboBox()
+        self.site_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.site_combo.setMinimumWidth(135)
         self.site_combo.currentIndexChanged.connect(self.refresh)
         bar_l.addWidget(self.site_combo)
 
         bar_l.addWidget(QLabel(_("vlan_lbl_device", "Device:")))
         self.dev_combo = QComboBox()
+        self.dev_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.dev_combo.setMinimumWidth(185)
         self.dev_combo.currentIndexChanged.connect(self.refresh)
         bar_l.addWidget(self.dev_combo)
 
@@ -277,23 +315,36 @@ class BackupView(QWidget):
         # Tab 1: Backups & Controlled Restore
         t1 = QWidget()
         t1_l = QVBoxLayout(t1)
+        t1_l.setContentsMargins(10, 10, 10, 10)
         split = QSplitter(Qt.Vertical)
+        split.setChildrenCollapsible(False)
 
         self.bkp_table = QTableWidget(0, 9)
         self.bkp_table.setHorizontalHeaderLabels([
             "UID",
             _("bkp_col_ts", "Timestamp"),
-            _("inv_col_host", "Device"),
-            _("inv_col_ip", "IP Address"),
+            _("inv_col_hostname", "Device"),
+            _("site_hdr_ip", "Management IP"),
             _("bkp_col_adapter", "Adapter"),
             _("bkp_col_method", "Method"),
             _("inv_col_status", "Status"),
             _("bkp_col_size", "Bytes"),
             "SHA-256",
         ])
-        self.bkp_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        bhdr = self.bkp_table.horizontalHeader()
+        bhdr.setSectionResizeMode(QHeaderView.Interactive)
+        bhdr.setSectionResizeMode(2, QHeaderView.Stretch)
+        self.bkp_table.setColumnWidth(0, 128)
+        self.bkp_table.setColumnWidth(1, 136)
+        self.bkp_table.setColumnWidth(3, 114)
+        self.bkp_table.setColumnWidth(4, 98)
+        self.bkp_table.setColumnWidth(5, 76)
+        self.bkp_table.setColumnWidth(6, 78)
+        self.bkp_table.setColumnWidth(7, 66)
+        self.bkp_table.setColumnWidth(8, 118)
         self.bkp_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.bkp_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.bkp_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.bkp_table.verticalHeader().setVisible(False)
         self.bkp_table.itemSelectionChanged.connect(self._on_backup_row_selected)
         split.addWidget(self.bkp_table)
@@ -302,15 +353,22 @@ class BackupView(QWidget):
         bot_l = QVBoxLayout(bot)
         bot_l.setContentsMargins(0, 6, 0, 0)
         act_row = QHBoxLayout()
+        act_row.setSpacing(8)
         self.btn_verify = QPushButton(_("bkp_btn_verify", "Verify SHA-256 Integrity"))
+        self.btn_verify.setObjectName("SecondaryButton")
+        self.btn_verify.setEnabled(False)
         self.btn_verify.clicked.connect(self._verify_selected)
         self.btn_export = QPushButton(_("bkp_btn_export", "Export Redacted Config"))
+        self.btn_export.setObjectName("SecondaryButton")
+        self.btn_export.setEnabled(False)
         self.btn_export.clicked.connect(self._export_selected)
         self.btn_restore = QPushButton(_("bkp_btn_restore", "Prepare Controlled Restore..."))
+        self.btn_restore.setObjectName("DangerButton")
+        self.btn_restore.setEnabled(False)
         self.btn_restore.clicked.connect(self._prepare_restore_dialog)
-        act_row.addWidget(self.btn_verify)
-        act_row.addWidget(self.btn_export)
-        act_row.addWidget(self.btn_restore)
+        for b in (self.btn_verify, self.btn_export, self.btn_restore):
+            b.setCursor(Qt.PointingHandCursor)
+            act_row.addWidget(b)
         act_row.addStretch()
         bot_l.addLayout(act_row)
 
@@ -322,53 +380,69 @@ class BackupView(QWidget):
         )
         bot_l.addWidget(self.bkp_viewer, 1)
         split.addWidget(bot)
+        split.setSizes([240, 180])
         t1_l.addWidget(split)
-        self.tabs.addTab(t1, _("bkp_tab_history", "Backups & History"))
+        self.tabs.addTab(t1, escape_qt_mnemonic(_("bkp_tab_history", "Backups & History")))
 
         # Tab 2: Visual Diff
         t2 = QWidget()
         t2_l = QVBoxLayout(t2)
+        t2_l.setContentsMargins(10, 10, 10, 10)
         d_bar = QHBoxLayout()
+        d_bar.setSpacing(8)
         d_bar.addWidget(QLabel(_("bkp_diff_a", "Baseline (A):")))
         self.diff_a_combo = QComboBox()
+        self.diff_a_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.diff_a_combo.setMinimumWidth(140)
         d_bar.addWidget(self.diff_a_combo, 1)
         d_bar.addWidget(QLabel(_("bkp_diff_b", "Candidate (B):")))
         self.diff_b_combo = QComboBox()
+        self.diff_b_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.diff_b_combo.setMinimumWidth(140)
         d_bar.addWidget(self.diff_b_combo, 1)
 
         self.btn_compare = QPushButton(_("bkp_btn_compare", "Compare Diff"))
-        self.btn_compare.setProperty("class", "PrimaryButton")
+        self.btn_compare.setObjectName("PrimaryButton")
+        self.btn_compare.setCursor(Qt.PointingHandCursor)
         self.btn_compare.clicked.connect(self._run_compare)
         d_bar.addWidget(self.btn_compare)
 
         self.btn_exp_diff = QPushButton(_("bkp_btn_export_diff", "Export HTML/TXT"))
+        self.btn_exp_diff.setObjectName("SecondaryButton")
+        self.btn_exp_diff.setCursor(Qt.PointingHandCursor)
         self.btn_exp_diff.clicked.connect(self._export_diff)
         d_bar.addWidget(self.btn_exp_diff)
         t2_l.addLayout(d_bar)
 
         self.diff_summary_lbl = QLabel("-")
+        self.diff_summary_lbl.setWordWrap(True)
         self.diff_summary_lbl.setStyleSheet("color: #38BDF8; font-weight: bold;")
         t2_l.addWidget(self.diff_summary_lbl)
 
         self.diff_table = QTableWidget(0, 5)
         self.diff_table.setHorizontalHeaderLabels(["#", "Baseline (A)", "#", "Candidate (B)", "Section"])
-        self.diff_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.diff_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.diff_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.diff_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        self.diff_table.setFont(QFont("Consolas", 10))
+        dhdr = self.diff_table.horizontalHeader()
+        dhdr.setSectionResizeMode(QHeaderView.Stretch)
+        dhdr.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        dhdr.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        dhdr.setSectionResizeMode(4, QHeaderView.ResizeToContents)
         self.diff_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.diff_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.diff_table.verticalHeader().setVisible(False)
         t2_l.addWidget(self.diff_table, 1)
         self.tabs.addTab(t2, _("bkp_tab_diff", "Visual Diff"))
 
-        # Tab 3: Scheduler & Policy
+        # Tab 3: Scheduler & Policy (scoped #PanelCard capped width)
         t3 = QWidget()
         t3_l = QVBoxLayout(t3)
+        t3_l.setContentsMargins(10, 10, 10, 10)
         pol_card = QFrame()
-        pol_card.setStyleSheet("QFrame { background-color: #1E293B; border: 1px solid #334155; border-radius: 10px; }")
+        pol_card.setObjectName("PanelCard")
+        pol_card.setMaximumWidth(560)
         pc_l = QFormLayout(pol_card)
-        pc_l.setContentsMargins(16, 16, 16, 16)
-        pc_l.setSpacing(10)
+        pc_l.setContentsMargins(18, 18, 18, 18)
+        pc_l.setSpacing(12)
 
         self.sched_freq = QComboBox()
         self.sched_freq.addItems(["Manual Only", "Every 6 Hours", "Daily (02:00 UTC)", "Weekly (Sunday)"])
@@ -379,7 +453,22 @@ class BackupView(QWidget):
         self.keep_min.setRange(1, 50)
         self.keep_min.setValue(3)
 
+        if self.config is not None:
+            saved_freq = self.config.get("backup_sched_freq", "Manual Only")
+            fidx = self.sched_freq.findText(str(saved_freq))
+            if fidx >= 0:
+                self.sched_freq.setCurrentIndex(fidx)
+            try:
+                self.ret_days.setValue(int(self.config.get("backup_ret_days", 90) or 90))
+                self.keep_min.setValue(int(self.config.get("backup_keep_min", 3) or 3))
+            except Exception:
+                pass
+        self.sched_freq.currentIndexChanged.connect(self._persist_scheduler_settings)
+        self.ret_days.valueChanged.connect(self._persist_scheduler_settings)
+        self.keep_min.valueChanged.connect(self._persist_scheduler_settings)
+
         sec_badge = QLabel("Encrypted at rest via Windows DPAPI + zlib + SHA-256 checksum")
+        sec_badge.setWordWrap(True)
         sec_badge.setStyleSheet("color: #10B981; font-weight: bold;")
 
         pc_l.addRow(_("bkp_sched_freq", "Automatic Schedule:"), self.sched_freq)
@@ -388,47 +477,77 @@ class BackupView(QWidget):
         pc_l.addRow(_("bkp_sched_sec", "At-Rest Security:"), sec_badge)
 
         self.btn_prune = QPushButton(_("bkp_btn_prune", "Apply Retention Policy Now"))
-        self.btn_prune.clicked.connect(self._apply_retention)
+        self.btn_prune.setObjectName("DangerButton")
+        self.btn_prune.setCursor(Qt.PointingHandCursor)
+        self.btn_prune.clicked.connect(lambda: self._apply_retention(confirm=True))
         pc_l.addRow("", self.btn_prune)
         t3_l.addWidget(pol_card)
         t3_l.addStretch()
-        self.tabs.addTab(t3, _("bkp_tab_sched", "Scheduler & Retention"))
+        self.tabs.addTab(t3, escape_qt_mnemonic(_("bkp_tab_sched", "Scheduler & Retention")))
 
         # Tab 4: Configuration Templates
         t4 = QWidget()
         t4_l = QHBoxLayout(t4)
+        t4_l.setContentsMargins(10, 10, 10, 10)
+        t4_l.setSpacing(12)
         left_tpl = QFrame()
-        left_tpl.setStyleSheet("QFrame { background-color: #1E293B; border: 1px solid #334155; border-radius: 10px; }")
+        left_tpl.setObjectName("PanelCard")
         lt_l = QVBoxLayout(left_tpl)
         lt_l.setContentsMargins(14, 14, 14, 14)
+        lt_l.setSpacing(10)
+
+        tpl_scroll = QScrollArea()
+        tpl_scroll.setWidgetResizable(True)
+        tpl_scroll.setFrameShape(QFrame.NoFrame)
+        tpl_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        tpl_body = QWidget()
+        tpl_form_wrap = QVBoxLayout(tpl_body)
+        tpl_form_wrap.setContentsMargins(0, 0, 4, 0)
+        tpl_form_wrap.setSpacing(10)
 
         top_f = QFormLayout()
+        top_f.setVerticalSpacing(8)
         self.tpl_dev_combo = QComboBox()
+        self.tpl_dev_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.tpl_dev_combo.setMinimumContentsLength(18)
+        self.tpl_dev_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.tpl_dev_combo.currentIndexChanged.connect(self._invalidate_template_preview)
         self.tpl_combo = QComboBox()
+        self.tpl_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.tpl_combo.setMinimumContentsLength(18)
+        self.tpl_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         for tpl in list_templates():
             self.tpl_combo.addItem(f"[{tpl['vendor_profile']}] {tpl['name']}", tpl["id"])
         self.tpl_combo.currentIndexChanged.connect(self._rebuild_template_params)
-        top_f.addRow(_("vlan_plan_dev", "Target Device:"), self.tpl_dev_combo)
+        self.tpl_combo.currentIndexChanged.connect(self._invalidate_template_preview)
+        top_f.addRow(_("bkp_tpl_target", "Target Device:"), self.tpl_dev_combo)
         top_f.addRow(_("tpl_select", "Template:"), self.tpl_combo)
-        lt_l.addLayout(top_f)
+        tpl_form_wrap.addLayout(top_f)
 
         self.tpl_param_box = QFormLayout()
-        lt_l.addLayout(self.tpl_param_box)
+        self.tpl_param_box.setVerticalSpacing(8)
+        tpl_form_wrap.addLayout(self.tpl_param_box)
+        tpl_form_wrap.addStretch()
+        tpl_scroll.setWidget(tpl_body)
+        lt_l.addWidget(tpl_scroll, 1)
 
         t_btns = QHBoxLayout()
+        t_btns.setSpacing(8)
         self.btn_tpl_preview = QPushButton(_("tpl_btn_preview", "Render Preview"))
-        self.btn_tpl_preview.setProperty("class", "PrimaryButton")
+        self.btn_tpl_preview.setObjectName("PrimaryButton")
+        self.btn_tpl_preview.setCursor(Qt.PointingHandCursor)
         self.btn_tpl_preview.clicked.connect(self._render_template_preview)
-        self.btn_tpl_apply = QPushButton(_("tpl_btn_apply", "Confirm & Apply..."))
+        self.btn_tpl_apply = QPushButton(escape_qt_mnemonic(_("tpl_btn_apply", "Confirm & Apply...")))
+        self.btn_tpl_apply.setObjectName("SecondaryButton")
+        self.btn_tpl_apply.setCursor(Qt.PointingHandCursor)
         self.btn_tpl_apply.setEnabled(False)
         self.btn_tpl_apply.clicked.connect(self._open_template_confirm)
         t_btns.addWidget(self.btn_tpl_preview)
         t_btns.addWidget(self.btn_tpl_apply)
         lt_l.addLayout(t_btns)
-        lt_l.addStretch()
 
         right_tpl = QFrame()
-        right_tpl.setStyleSheet("QFrame { background-color: #1E293B; border: 1px solid #334155; border-radius: 10px; }")
+        right_tpl.setObjectName("PanelCard")
         rt_l = QVBoxLayout(right_tpl)
         rt_l.setContentsMargins(14, 14, 14, 14)
         self.tpl_info_lbl = QLabel("-")
@@ -448,10 +567,22 @@ class BackupView(QWidget):
 
         self._rebuild_template_params()
 
+    def _invalidate_template_preview(self) -> None:
+        self._last_template_preview = None
+        self.btn_tpl_apply.setEnabled(False)
+
+    def _persist_scheduler_settings(self) -> None:
+        if self.config is None:
+            return
+        self.config.set("backup_sched_freq", self.sched_freq.currentText())
+        self.config.set("backup_ret_days", self.ret_days.value())
+        self.config.set("backup_keep_min", self.keep_min.value())
+
     def _rebuild_template_params(self) -> None:
         while self.tpl_param_box.rowCount() > 0:
             self.tpl_param_box.removeRow(0)
         self._param_inputs.clear()
+        self._invalidate_template_preview()
         tpl_id = self.tpl_combo.currentData()
         if not tpl_id:
             return
@@ -461,6 +592,7 @@ class BackupView(QWidget):
             le = QLineEdit(str(p.get("default", "")))
             if p.get("secret"):
                 le.setEchoMode(QLineEdit.Password)
+            le.textChanged.connect(self._invalidate_template_preview)
             self._param_inputs[p["key"]] = le
             self.tpl_param_box.addRow(f"{p['label']}:", le)
 
@@ -505,6 +637,10 @@ class BackupView(QWidget):
         backups = self.manager.list_backups(device_id=dev_id, site_id=site_id)
 
         self.bkp_table.setRowCount(0)
+        self.bkp_viewer.clear()
+        self.btn_verify.setEnabled(False)
+        self.btn_export.setEnabled(False)
+        self.btn_restore.setEnabled(False)
         cur_a = self.diff_a_combo.currentData()
         cur_b = self.diff_b_combo.currentData()
         self.diff_a_combo.clear()
@@ -549,7 +685,12 @@ class BackupView(QWidget):
 
     def _on_backup_row_selected(self) -> None:
         bid = self._selected_backup_id()
-        if bid is None:
+        has_sel = bid is not None
+        self.btn_verify.setEnabled(has_sel)
+        self.btn_export.setEnabled(has_sel)
+        self.btn_restore.setEnabled(has_sel)
+        if not has_sel:
+            self.bkp_viewer.clear()
             return
         try:
             self.bkp_viewer.setPlainText(self.manager.get_backup_content(bid, redact=True))
@@ -680,6 +821,7 @@ class BackupView(QWidget):
             ]
             for c, it in enumerate(items):
                 it.setBackground(bg)
+                it.setForeground(QColor("#E2E8F0"))
                 self.diff_table.setItem(r, c, it)
 
     def _export_diff(self) -> None:
@@ -688,12 +830,26 @@ class BackupView(QWidget):
         path, flt = QFileDialog.getSaveFileName(self, "Export Diff", "config_diff.html", "HTML Files (*.html);;Text Diff (*.diff *.txt)")
         if not path:
             return
-        if path.lower().endswith(".html"):
-            export_diff_html(self._last_diff, path)
-        else:
-            export_diff_text(self._last_diff, path)
+        try:
+            if path.lower().endswith(".html") or "HTML" in (flt or ""):
+                export_diff_html(self._last_diff, path)
+            else:
+                export_diff_text(self._last_diff, path)
+            QMessageBox.information(self, _("msg_success", "Success"), f"Diff exported to:\n{path}")
+        except Exception as exc:
+            QMessageBox.critical(self, _("common_error", "Error"), str(exc))
 
-    def _apply_retention(self) -> None:
+    def _apply_retention(self, confirm: bool = False) -> None:
+        if confirm:
+            ans = QMessageBox.question(
+                self,
+                _("bkp_btn_prune", "Apply Retention Policy"),
+                f"Prune backups older than {self.ret_days.value()} days (keeping at least {self.keep_min.value()} per device)?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if ans != QMessageBox.Yes:
+                return
         removed = self.manager.apply_retention_policy(
             max_age_days=self.ret_days.value(),
             keep_min_per_device=self.keep_min.value(),
@@ -726,6 +882,13 @@ class BackupView(QWidget):
 
     def _open_template_confirm(self) -> None:
         if not self._last_template_preview:
+            return
+        if not self.ssh_transport:
+            QMessageBox.warning(
+                self,
+                _("tpl_confirm_title", "Live SSH Execution Unavailable"),
+                "No active SSH transport is wired for live template push. You can still review/copy the rendered CLI preview.",
+            )
             return
         dlg = TemplateConfirmDialog(self._last_template_preview, self)
         if dlg.exec() == QDialog.Accepted:

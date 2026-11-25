@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import html
 from typing import Any, Dict, List, Optional, Tuple
 
 import pyqtgraph as pg
@@ -34,7 +35,7 @@ _STATUS_COLORS = {
 class KpiCard(QFrame):
     def __init__(self, emoji, title, value="--", parent=None):
         super().__init__(parent)
-        self.setObjectName("Card")
+        self.setObjectName("KpiCard")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 10, 12, 10)
@@ -45,19 +46,21 @@ class KpiCard(QFrame):
         val_layout.setAlignment(Qt.AlignCenter)
 
         self.emoji_label = QLabel(emoji)
-        self.emoji_label.setStyleSheet("font-size: 18px; margin-bottom: 0px;")
+        self.emoji_label.setStyleSheet("font-size: 16px; margin-bottom: 0px;")
 
         self.value_label = QLabel(value)
         self.value_label.setObjectName("ValueLabel")
-        self.value_label.setStyleSheet("font-size: 19px; font-weight: 800; color: #FFFFFF; margin-bottom: 0px;")
+        self.value_label.setWordWrap(True)
+        self.value_label.setStyleSheet("font-size: 18px; font-weight: 800; color: #FFFFFF; margin-bottom: 0px;")
 
         val_layout.addWidget(self.emoji_label)
         val_layout.addWidget(self.value_label)
 
-        self.title_label = QLabel(title)
+        self.title_label = QLabel(title.upper())
         self.title_label.setObjectName("SubTitle")
+        self.title_label.setWordWrap(True)
         self.title_label.setStyleSheet(
-            "font-size: 10px; color: #94A3B8; font-weight: bold; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 0px;"
+            "font-size: 11px; color: #94A3B8; font-weight: 700; margin-bottom: 0px;"
         )
         self.title_label.setAlignment(Qt.AlignCenter)
 
@@ -78,7 +81,7 @@ def _make_dash_plot() -> pg.PlotWidget:
     pw.setMouseEnabled(x=False, y=False)
     pw.getAxis("bottom").setTextPen("#94A3B8")
     pw.getAxis("left").setTextPen("#94A3B8")
-    pw.setMinimumHeight(185)
+    pw.setMinimumHeight(195)
     return pw
 
 
@@ -147,15 +150,19 @@ class DashboardView(QWidget):
         for idx, card in enumerate(self.kpi_cards):
             r, c = divmod(idx, 5)
             kpi_grid.addWidget(card, r, c)
+        for c in range(5):
+            kpi_grid.setColumnStretch(c, 1)
         scroll_layout.addLayout(kpi_grid)
 
         # 2. 8 Charts / Visuals in 2-column grid cards
         charts_grid = QGridLayout()
         charts_grid.setSpacing(14)
+        charts_grid.setColumnStretch(0, 1)
+        charts_grid.setColumnStretch(1, 1)
 
         # Chart 1: Real-time Network Throughput (BandwidthChart preserved)
         self.bandwidth_chart = BandwidthChart()
-        self.bandwidth_chart.setMinimumHeight(200)
+        self.bandwidth_chart.setMinimumHeight(195)
         charts_grid.addWidget(
             self._wrap_chart_card(_("dash_throughput", "NETWORK THROUGHPUT"), self.bandwidth_chart), 0, 0
         )
@@ -174,6 +181,7 @@ class DashboardView(QWidget):
 
         # Chart 4: Aggregate Interface Traffic In/Out
         self.traffic_plot = _make_dash_plot()
+        self.traffic_plot.addLegend(offset=(8, 8))
         charts_grid.addWidget(
             self._wrap_chart_card(_("dash_chart_if_traffic", "AGGREGATE INTERFACE TRAFFIC (Mbps)"), self.traffic_plot), 1, 1
         )
@@ -206,11 +214,11 @@ class DashboardView(QWidget):
 
         # 3. SNMP Infrastructure Inventory Table
         inv_card = QFrame()
-        inv_card.setObjectName("Card")
+        inv_card.setObjectName("PanelCard")
         inv_lay = QVBoxLayout(inv_card)
         inv_lay.setContentsMargins(18, 14, 18, 14)
         inv_lay.setSpacing(8)
-        inv_hdr = QLabel("🧭 " + _("dash_snmp_inventory", "SNMP INFRASTRUCTURE INVENTORY"))
+        inv_hdr = QLabel(_("dash_snmp_inventory", "SNMP INFRASTRUCTURE INVENTORY"))
         inv_hdr.setObjectName("SectionHeader")
         inv_hdr.setStyleSheet("font-size: 12px; font-weight: bold; margin-bottom: 0px;")
         inv_lay.addWidget(inv_hdr)
@@ -227,8 +235,18 @@ class DashboardView(QWidget):
         ])
         self.inventory_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.inventory_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.inventory_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.inventory_table.setAlternatingRowColors(True)
         self.inventory_table.verticalHeader().setVisible(False)
-        self.inventory_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.inventory_table.verticalHeader().setDefaultSectionSize(32)
+        ih = self.inventory_table.horizontalHeader()
+        ih.setSectionResizeMode(0, QHeaderView.Stretch)
+        ih.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        ih.setSectionResizeMode(2, QHeaderView.Stretch)
+        ih.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        ih.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        ih.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        ih.setSectionResizeMode(6, QHeaderView.ResizeToContents)
         self.inventory_table.setMinimumHeight(140)
         self.inventory_table.setMaximumHeight(220)
         inv_lay.addWidget(self.inventory_table)
@@ -239,12 +257,12 @@ class DashboardView(QWidget):
         bottom_cols.setSpacing(15)
 
         self.alerts_card = QFrame()
-        self.alerts_card.setObjectName("Card")
+        self.alerts_card.setObjectName("PanelCard")
         self.alerts_layout = QVBoxLayout(self.alerts_card)
         self.alerts_layout.setContentsMargins(20, 16, 20, 16)
         self.alerts_layout.setSpacing(10)
 
-        alerts_header = QLabel("🔔 " + _("dash_latest_alerts", "Dernières Alertes"))
+        alerts_header = QLabel(_("dash_latest_alerts", "Latest Alerts"))
         alerts_header.setObjectName("SectionHeader")
         alerts_header.setStyleSheet("font-size: 13px; font-weight: bold; margin-bottom: 0px;")
         self.alerts_layout.addWidget(alerts_header)
@@ -255,12 +273,12 @@ class DashboardView(QWidget):
         self.alerts_layout.addStretch()
 
         self.sites_card = QFrame()
-        self.sites_card.setObjectName("Card")
+        self.sites_card.setObjectName("PanelCard")
         self.sites_layout = QVBoxLayout(self.sites_card)
         self.sites_layout.setContentsMargins(20, 16, 20, 16)
         self.sites_layout.setSpacing(10)
 
-        sites_header = QLabel("📋 " + _("dash_sites_summary", "Résumé Équipements par Site"))
+        sites_header = QLabel(_("dash_sites_summary", "Equipment Summary by Site"))
         sites_header.setObjectName("SectionHeader")
         sites_header.setStyleSheet("font-size: 13px; font-weight: bold; margin-bottom: 0px;")
         self.sites_layout.addWidget(sites_header)
@@ -276,7 +294,7 @@ class DashboardView(QWidget):
 
         # 5. Bottom Speedtest Status Bar (preserved)
         self.bottom_bar = QFrame()
-        self.bottom_bar.setObjectName("Card")
+        self.bottom_bar.setObjectName("PanelCard")
         self.bottom_bar.setFixedHeight(45)
         self.bottom_layout = QHBoxLayout(self.bottom_bar)
         self.bottom_layout.setContentsMargins(20, 0, 20, 0)
@@ -291,23 +309,28 @@ class DashboardView(QWidget):
         scroll.setWidget(scroll_content)
         self.main_layout.addWidget(scroll)
 
-        # Periodic Info Updates
+        # Periodic Info Updates (skip background polling when tab is hidden)
         self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update_info)
+        self.timer.timeout.connect(self._on_timer_tick)
         self.timer.start(10000)
 
         self.update_info()
 
+    def _on_timer_tick(self):
+        if self.isVisible():
+            self.update_info()
+
     @staticmethod
     def _wrap_chart_card(title: str, chart_widget: QWidget) -> QFrame:
         card = QFrame()
-        card.setObjectName("Card")
+        card.setObjectName("PanelCard")
         cl = QVBoxLayout(card)
         cl.setContentsMargins(16, 14, 16, 14)
         cl.setSpacing(8)
         hdr = QLabel(title)
         hdr.setObjectName("SubTitle")
-        hdr.setStyleSheet("font-size: 11px; color: #94A3B8; font-weight: 800; letter-spacing: 0.9px; margin-bottom: 0px;")
+        hdr.setWordWrap(True)
+        hdr.setStyleSheet("font-size: 11px; color: #94A3B8; font-weight: 800; margin-bottom: 0px;")
         cl.addWidget(hdr)
         cl.addWidget(chart_widget)
         return card
@@ -354,10 +377,10 @@ class DashboardView(QWidget):
         up_ifaces_total = 0
         down_ifaces_total = 0
 
-        cpu_series: List[float] = []
-        mem_series: List[float] = []
-        in_series: List[float] = []
-        out_series: List[float] = []
+        cpu_buckets: List[List[float]] = []
+        mem_buckets: List[List[float]] = []
+        in_buckets: List[List[float]] = []
+        out_buckets: List[List[float]] = []
         top_iface_items: List[Tuple[str, float]] = []
 
         self.inventory_table.setRowCount(0)
@@ -376,18 +399,39 @@ class DashboardView(QWidget):
 
             mrows = self.db.get_snmp_metrics(did, limit=120)
             dev_m: Dict[str, float] = {}
+            d_cpu: List[float] = []
+            d_mem: List[float] = []
+            d_in: List[float] = []
+            d_out: List[float] = []
             for r in mrows:
                 mn = r["metric_name"]
                 val = float(r["metric_value"])
                 dev_m[mn] = val
                 if mn == "cpu_pct":
-                    cpu_series.append(val)
+                    d_cpu.append(val)
                 elif mn == "memory_pct":
-                    mem_series.append(val)
+                    d_mem.append(val)
                 elif mn == "total_in_mbps":
-                    in_series.append(val)
+                    d_in.append(val)
                 elif mn == "total_out_mbps":
-                    out_series.append(val)
+                    d_out.append(val)
+
+            for idx_s, val_s in enumerate(d_cpu[-60:]):
+                if idx_s >= len(cpu_buckets):
+                    cpu_buckets.append([])
+                cpu_buckets[idx_s].append(val_s)
+            for idx_s, val_s in enumerate(d_mem[-60:]):
+                if idx_s >= len(mem_buckets):
+                    mem_buckets.append([])
+                mem_buckets[idx_s].append(val_s)
+            for idx_s, val_s in enumerate(d_in[-60:]):
+                if idx_s >= len(in_buckets):
+                    in_buckets.append([])
+                in_buckets[idx_s].append(val_s)
+            for idx_s, val_s in enumerate(d_out[-60:]):
+                if idx_s >= len(out_buckets):
+                    out_buckets.append([])
+                out_buckets[idx_s].append(val_s)
 
             for mk, mv in (snap.get("metrics") or {}).items():
                 if isinstance(mv, (int, float)) and not isinstance(mv, bool):
@@ -453,6 +497,11 @@ class DashboardView(QWidget):
         self.avg_mem_kpi.update_value(f"{sum(mem_latest)/len(mem_latest):.1f}%" if mem_latest else "--")
         self.poe_kpi.update_value(f"{sum(poe_utils)/len(poe_utils):.1f}%" if poe_utils else "N/A")
 
+        cpu_series = [sum(b) / len(b) for b in cpu_buckets if b]
+        mem_series = [sum(b) / len(b) for b in mem_buckets if b]
+        in_series = [sum(b) for b in in_buckets if b]
+        out_series = [sum(b) for b in out_buckets if b]
+
         # Update Chart 2: CPU Trend
         self.cpu_plot.clear()
         if cpu_series:
@@ -472,10 +521,10 @@ class DashboardView(QWidget):
         if in_series or out_series:
             if in_series:
                 pts_in = in_series[-60:]
-                self.traffic_plot.plot(list(range(len(pts_in))), pts_in, pen=pg.mkPen("#10B981", width=2))
+                self.traffic_plot.plot(list(range(len(pts_in))), pts_in, name="IN", pen=pg.mkPen("#10B981", width=2))
             if out_series:
                 pts_out = out_series[-60:]
-                self.traffic_plot.plot(list(range(len(pts_out))), pts_out, pen=pg.mkPen("#6366F1", width=2))
+                self.traffic_plot.plot(list(range(len(pts_out))), pts_out, name="OUT", pen=pg.mkPen("#6366F1", width=2))
 
         # Update Chart 5: Top Utilized Interfaces
         top_sorted = sorted(top_iface_items, key=lambda kv: kv[1], reverse=True)[:5]
@@ -541,11 +590,11 @@ class DashboardView(QWidget):
                 up_speed = int(st["upload"])
                 time_elapsed = st["time_str"]
                 self.bottom_label.setText(
-                    f"⏱️ {_('dash_last_speedtest', 'Dernier Speed Test')} : {down_speed}↓ / {up_speed}↑ Mbps   •   {time_elapsed}"
+                    f"⏱ {_('dash_last_speedtest', 'Dernier Speed Test')} : {down_speed}↓ / {up_speed}↑ Mbps   •   {time_elapsed}"
                 )
             else:
                 self.download_kpi.update_value("0 Mbps")
-                self.bottom_label.setText(f"⏱️ {_('dash_no_speedtest', 'Aucun Speed Test enregistré')}")
+                self.bottom_label.setText(f"⏱ {_('dash_no_speedtest', 'Aucun Speed Test enregistré')}")
 
             # 4. Update Infrastructure KPIs, 8 Visuals & Inventory
             self._update_infra_visuals()
@@ -559,13 +608,17 @@ class DashboardView(QWidget):
             alerts = self.db.get_latest_alerts(limit=3)
             if not alerts:
                 no_alert = QLabel("— " + _("dash_no_alerts", "Pas d'alertes récentes"))
-                no_alert.setStyleSheet("color: #64748B; font-style: italic; font-size: 12px; margin-bottom: 0px;")
+                no_alert.setWordWrap(True)
+                no_alert.setStyleSheet("color: #94A3B8; font-style: italic; font-size: 12px; margin-bottom: 0px;")
                 self.alerts_content_layout.addWidget(no_alert)
             else:
                 for a in alerts:
                     color = "#10B981" if a["status"] == "UP" else "#F43F5E"
-                    status_text = f"<span style='color: {color}; font-weight: bold;'>{a['status']}</span>"
-                    item_label = QLabel(f"— {a['timestamp']} {a['host']} {status_text}")
+                    status_text = f"<span style='color: {color}; font-weight: bold;'>{html.escape(str(a['status']))}</span>"
+                    item_label = QLabel(
+                        f"— {html.escape(str(a['timestamp']))} {html.escape(str(a['host']))} {status_text}"
+                    )
+                    item_label.setWordWrap(True)
                     item_label.setStyleSheet("color: #E2E8F0; font-size: 12px; margin-bottom: 0px;")
                     self.alerts_content_layout.addWidget(item_label)
 
@@ -578,17 +631,20 @@ class DashboardView(QWidget):
             sites_data = self.config.get("sites", []) if self.config else []
             if not sites_data:
                 no_site = QLabel("— " + _("dash_no_sites", "Aucun équipement configuré"))
-                no_site.setStyleSheet("color: #64748B; font-style: italic; font-size: 12px; margin-bottom: 0px;")
+                no_site.setWordWrap(True)
+                no_site.setStyleSheet("color: #94A3B8; font-style: italic; font-size: 12px; margin-bottom: 0px;")
                 self.sites_content_layout.addWidget(no_site)
             else:
                 site_counts = {}
+                other_lbl = _("dash_other", "Other")
                 for s in sites_data:
-                    s_name = s.get("site", "Autre") or "Autre"
+                    s_name = s.get("site", other_lbl) or other_lbl
                     site_counts[s_name] = site_counts.get(s_name, 0) + 1
 
                 sorted_sites = sorted(site_counts.items(), key=lambda x: x[1], reverse=True)[:3]
                 for site, count in sorted_sites:
                     lbl = QLabel(f"• {site} : {count} {_('dash_equipments', 'équipement(s)')}")
+                    lbl.setWordWrap(True)
                     lbl.setStyleSheet("color: #E2E8F0; font-size: 12px; margin-bottom: 0px;")
                     self.sites_content_layout.addWidget(lbl)
 

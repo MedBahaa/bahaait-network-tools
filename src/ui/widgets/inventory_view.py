@@ -5,6 +5,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -15,8 +16,10 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -28,7 +31,7 @@ from PySide6.QtWidgets import (
 from core.inventory_manager import DEVICE_CATEGORIES, InventoryManager
 from core.site_manager import SiteManager
 from utils.db import DatabaseManager, SSHProfile
-from utils.i18n import _
+from utils.i18n import _, escape_qt_mnemonic
 
 _STATUS_COLORS = {
     "UP": "#10B981",
@@ -61,7 +64,10 @@ class DeviceEditorDialog(QDialog):
             if is_edit
             else _("inv_dlg_add_title", "Add Infrastructure Device")
         )
-        self.setMinimumSize(620, 520)
+        screen = QApplication.primaryScreen().availableGeometry() if QApplication.primaryScreen() else None
+        max_h = int(screen.height() * 0.85) if screen else 640
+        self.setMinimumSize(580, min(520, max_h))
+        self.resize(620, min(580, max_h))
         self.setStyleSheet("QDialog { background-color: #0F172A; color: #F1F5F9; }")
 
         root = QVBoxLayout(self)
@@ -71,10 +77,14 @@ class DeviceEditorDialog(QDialog):
         tabs = QTabWidget()
         root.addWidget(tabs, 1)
 
-        # Tab 1: General & Network
+        # Tab 1: General & Network (scrollable for 768p screens)
+        tab1_scroll = QScrollArea()
+        tab1_scroll.setWidgetResizable(True)
+        tab1_scroll.setFrameShape(QFrame.NoFrame)
         tab_gen = QWidget()
         f_gen = QFormLayout(tab_gen)
-        f_gen.setSpacing(8)
+        f_gen.setContentsMargins(8, 8, 12, 8)
+        f_gen.setSpacing(10)
 
         self.hostname_edit = QLineEdit(device.get("hostname", "") if device else "")
         self.ip_edit = QLineEdit(device.get("management_ip", "") if device else "")
@@ -127,22 +137,27 @@ class DeviceEditorDialog(QDialog):
         f_gen.addRow(_("inv_col_hostname", "Hostname") + " *:", self.hostname_edit)
         f_gen.addRow(_("inv_col_ip", "Management IP") + " *:", self.ip_edit)
         f_gen.addRow(_("inv_col_mac", "MAC Address") + ":", self.mac_edit)
-        f_gen.addRow(_("inv_col_vendor", "Vendor") + ":", self.vendor_edit)
+        f_gen.addRow(_("inv_hdr_vendor", "Vendor") + ":", self.vendor_edit)
         f_gen.addRow(_("inv_col_model", "Model") + ":", self.model_edit)
         f_gen.addRow(_("inv_col_firmware", "Firmware") + ":", self.fw_edit)
         f_gen.addRow(_("inv_col_category", "Category") + ":", self.category_combo)
         f_gen.addRow(_("inv_col_role", "Role") + ":", self.role_edit)
-        f_gen.addRow(_("inv_col_site", "Site") + ":", self.site_combo)
+        f_gen.addRow(_("topo_col_site", "Site:"), self.site_combo)
         f_gen.addRow(_("inv_col_rack", "Rack / Location") + ":", self.rack_edit)
         f_gen.addRow(_("inv_col_protocol", "Protocol") + ":", self.proto_combo)
         f_gen.addRow(_("inv_lbl_snmp_profile", "SNMP Profile") + ":", self.snmp_profile_edit)
         f_gen.addRow(_("inv_lbl_ssh_profile", "SSH Profile") + ":", self.ssh_profile_combo)
-        tabs.addTab(tab_gen, _("inv_tab_general", "General & Network"))
+        tab1_scroll.setWidget(tab_gen)
+        tabs.addTab(tab1_scroll, escape_qt_mnemonic(_("inv_tab_general", "General & Network")))
 
-        # Tab 2: Asset Lifecycle
+        # Tab 2: Asset Lifecycle (scrollable)
+        tab2_scroll = QScrollArea()
+        tab2_scroll.setWidgetResizable(True)
+        tab2_scroll.setFrameShape(QFrame.NoFrame)
         tab_asset = QWidget()
         f_asset = QFormLayout(tab_asset)
-        f_asset.setSpacing(8)
+        f_asset.setContentsMargins(8, 8, 12, 8)
+        f_asset.setSpacing(10)
         self.serial_edit = QLineEdit(device.get("serial_number", "") if device else "")
         self.mfg_edit = QLineEdit(device.get("manufacturer", "") if device else "")
         self.purchase_edit = QLineEdit(device.get("purchase_date", "") if device else "")
@@ -164,12 +179,14 @@ class DeviceEditorDialog(QDialog):
         f_asset.addRow(_("inv_lbl_owner", "Equipment Owner") + ":", self.owner_edit)
         f_asset.addRow(_("inv_lbl_support", "Support Info") + ":", self.support_edit)
         f_asset.addRow(_("inv_lbl_notes", "Maintenance Notes") + ":", self.notes_edit)
-        tabs.addTab(tab_asset, _("inv_tab_asset", "Asset & Lifecycle"))
+        tab2_scroll.setWidget(tab_asset)
+        tabs.addTab(tab2_scroll, escape_qt_mnemonic(_("inv_tab_asset", "Asset & Lifecycle")))
 
         # Tab 3: Grouping, Tags & Custom Fields
         tab_extra = QWidget()
         f_extra = QFormLayout(tab_extra)
-        f_extra.setSpacing(8)
+        f_extra.setContentsMargins(8, 8, 12, 8)
+        f_extra.setSpacing(10)
         self.group_edit = QLineEdit(device.get("device_group", "") if device else "")
         self.tags_edit = QLineEdit(", ".join(device.get("tags") or []) if device else "")
         self.tags_edit.setPlaceholderText("core, critical, building-a")
@@ -181,9 +198,17 @@ class DeviceEditorDialog(QDialog):
         f_extra.addRow(_("inv_lbl_group", "Device Group") + ":", self.group_edit)
         f_extra.addRow(_("inv_lbl_tags", "Tags (comma-sep)") + ":", self.tags_edit)
         f_extra.addRow(_("inv_lbl_custom_fields", "Custom Fields (JSON)") + ":", self.custom_edit)
-        tabs.addTab(tab_extra, _("inv_tab_custom", "Tags & Custom Fields"))
+        tabs.addTab(tab_extra, escape_qt_mnemonic(_("inv_tab_custom", "Tags & Custom Fields")))
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        save_b = buttons.button(QDialogButtonBox.Save)
+        cancel_b = buttons.button(QDialogButtonBox.Cancel)
+        if save_b:
+            save_b.setObjectName("PrimaryButton")
+            save_b.setCursor(Qt.PointingHandCursor)
+        if cancel_b:
+            cancel_b.setObjectName("SecondaryButton")
+            cancel_b.setCursor(Qt.PointingHandCursor)
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
@@ -265,16 +290,17 @@ class InventoryView(QWidget):
 
     def _make_kpi_card(self, label_text: str, accent: str) -> QLabel:
         frame = QFrame()
-        frame.setObjectName("Card")
+        frame.setObjectName("KpiCard")
         lay = QVBoxLayout(frame)
         lay.setContentsMargins(12, 10, 12, 10)
-        lay.setSpacing(2)
+        lay.setSpacing(3)
         val_lbl = QLabel("0")
         val_lbl.setAlignment(Qt.AlignCenter)
-        val_lbl.setStyleSheet(f"font-size: 20px; font-weight: 800; color: {accent}; margin-bottom: 0px;")
+        val_lbl.setStyleSheet(f"font-size: 17px; font-weight: 800; color: {accent};")
         title_lbl = QLabel(label_text)
         title_lbl.setAlignment(Qt.AlignCenter)
-        title_lbl.setStyleSheet("font-size: 10px; font-weight: bold; color: #94A3B8; text-transform: uppercase; margin-bottom: 0px;")
+        title_lbl.setWordWrap(True)
+        title_lbl.setStyleSheet("font-size: 11px; font-weight: 600; color: #94A3B8;")
         lay.addWidget(val_lbl)
         lay.addWidget(title_lbl)
         self.kpi_layout.addWidget(frame)
@@ -282,17 +308,28 @@ class InventoryView(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 22, 24, 22)
-        root.setSpacing(14)
+        root.setContentsMargins(20, 16, 20, 16)
+        root.setSpacing(12)
 
-        # Header + Primary Actions
-        hdr_row = QHBoxLayout()
+        # Header Row 1: Title + Primary CTA (prevents title truncation at 1280px)
+        hdr_top = QHBoxLayout()
         title = QLabel(_("inv_title", "Advanced Device Inventory"))
         title.setObjectName("Title")
-        title.setStyleSheet("font-size: 24px; font-weight: 800; color: #FFFFFF; margin-bottom: 0px;")
-        hdr_row.addWidget(title)
-        hdr_row.addStretch()
+        title.setStyleSheet("font-size: 22px; font-weight: 800; color: #FFFFFF;")
+        hdr_top.addWidget(title)
+        hdr_top.addStretch()
 
+        self.btn_add = QPushButton("+ " + _("inv_btn_add", "Add Device"))
+        self.btn_add.setObjectName("PrimaryButton")
+        self.btn_add.setCursor(Qt.PointingHandCursor)
+        self.btn_add.setToolTip(_("inv_btn_add", "Add Device"))
+        self.btn_add.clicked.connect(self.on_add_device)
+        hdr_top.addWidget(self.btn_add)
+        root.addLayout(hdr_top)
+
+        # Header Row 2: Secondary Inventory Actions
+        hdr_actions = QHBoxLayout()
+        hdr_actions.setSpacing(8)
         self.btn_sync = QPushButton(_("inv_btn_sync", "Sync SNMP / Hosts"))
         self.btn_sync.setObjectName("SecondaryButton")
         self.btn_sync.setCursor(Qt.PointingHandCursor)
@@ -318,18 +355,15 @@ class InventoryView(QWidget):
         self.btn_export_pdf.setCursor(Qt.PointingHandCursor)
         self.btn_export_pdf.clicked.connect(self.on_export_pdf)
 
-        self.btn_add = QPushButton("+ " + _("inv_btn_add", "Add Device"))
-        self.btn_add.setObjectName("PrimaryButton")
-        self.btn_add.setCursor(Qt.PointingHandCursor)
-        self.btn_add.clicked.connect(self.on_add_device)
-
-        for b in (self.btn_sync, self.btn_dups, self.btn_import, self.btn_export_csv, self.btn_export_pdf, self.btn_add):
-            hdr_row.addWidget(b)
-        root.addLayout(hdr_row)
+        for b in (self.btn_sync, self.btn_dups, self.btn_import, self.btn_export_csv, self.btn_export_pdf):
+            b.setToolTip(b.text())
+            hdr_actions.addWidget(b)
+        hdr_actions.addStretch()
+        root.addLayout(hdr_actions)
 
         # KPI Strip
         self.kpi_layout = QHBoxLayout()
-        self.kpi_layout.setSpacing(12)
+        self.kpi_layout.setSpacing(10)
         self.kpi_total = self._make_kpi_card(_("inv_kpi_total", "Total Devices"), "#FFFFFF")
         self.kpi_online = self._make_kpi_card(_("inv_kpi_online", "Online"), "#10B981")
         self.kpi_issues = self._make_kpi_card(_("inv_kpi_issues", "Degraded / Offline"), "#F43F5E")
@@ -337,43 +371,52 @@ class InventoryView(QWidget):
         self.kpi_maint = self._make_kpi_card(_("inv_kpi_maint", "Maintenance / Warranty Due"), "#06B6D4")
         root.addLayout(self.kpi_layout)
 
-        # Filter Toolbar
+        # Filter Toolbar (scoped #FilterBar)
         filter_card = QFrame()
-        filter_card.setObjectName("Card")
+        filter_card.setObjectName("FilterBar")
         flay = QHBoxLayout(filter_card)
-        flay.setContentsMargins(14, 10, 14, 10)
-        flay.setSpacing(10)
+        flay.setContentsMargins(12, 8, 12, 8)
+        flay.setSpacing(8)
 
         self.search_edit = QLineEdit()
+        self.search_edit.setMinimumWidth(140)
         self.search_edit.setPlaceholderText(_("inv_search_placeholder", "Search hostname, IP, MAC, serial, vendor, tag..."))
         self.search_edit.textChanged.connect(self.apply_filters)
 
         self.site_filter = QComboBox()
+        self.site_filter.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.site_filter.setMinimumWidth(118)
         self.site_filter.currentIndexChanged.connect(self.apply_filters)
 
         self.cat_filter = QComboBox()
+        self.cat_filter.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.cat_filter.setMinimumWidth(128)
         self.cat_filter.addItem(_("inv_all_categories", "All Categories"), None)
         for cat in DEVICE_CATEGORIES:
             self.cat_filter.addItem(cat, cat)
         self.cat_filter.currentIndexChanged.connect(self.apply_filters)
 
         self.status_filter = QComboBox()
+        self.status_filter.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.status_filter.setMinimumWidth(110)
         self.status_filter.addItem(_("inv_all_statuses", "All Statuses"), None)
         for st in ("ONLINE", "UP", "DEGRADED", "OFFLINE", "DOWN", "UNKNOWN"):
             self.status_filter.addItem(st, st)
         self.status_filter.currentIndexChanged.connect(self.apply_filters)
 
         self.group_filter = QComboBox()
+        self.group_filter.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.group_filter.setMinimumWidth(126)
         self.group_filter.currentIndexChanged.connect(self.apply_filters)
 
-        flay.addWidget(self.search_edit, 3)
-        flay.addWidget(self.site_filter, 1)
-        flay.addWidget(self.cat_filter, 1)
-        flay.addWidget(self.status_filter, 1)
-        flay.addWidget(self.group_filter, 1)
+        flay.addWidget(self.search_edit, 2)
+        flay.addWidget(self.site_filter)
+        flay.addWidget(self.cat_filter)
+        flay.addWidget(self.status_filter)
+        flay.addWidget(self.group_filter)
         root.addWidget(filter_card)
 
-        # Inventory Table
+        # Inventory Table (inherits global Quantum Midnight v2 table QSS)
         self.table = QTableWidget(0, 9)
         self.table.setHorizontalHeaderLabels([
             _("inv_col_hostname", "Hostname"),
@@ -390,19 +433,24 @@ class InventoryView(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.verticalHeader().setVisible(False)
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._on_table_context_menu)
+        self.table.cellDoubleClicked.connect(self._on_row_double_clicked)
         hdr = self.table.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.Interactive)
-        hdr.setSectionResizeMode(0, QHeaderView.Stretch)
         hdr.setSectionResizeMode(3, QHeaderView.Stretch)
-        self.table.setColumnWidth(8, 175)
-        self.table.setStyleSheet(
-            "QTableWidget { background-color: #0F172A; border: 1px solid #334155; border-radius: 10px; color: #F1F5F9; }"
-            "QHeaderView::section { background-color: #1E293B; color: #94A3B8; font-weight: bold; border: none; padding: 8px; }"
-        )
+        self.table.setColumnWidth(0, 108)
+        self.table.setColumnWidth(1, 100)
+        self.table.setColumnWidth(2, 104)
+        self.table.setColumnWidth(4, 90)
+        self.table.setColumnWidth(5, 90)
+        self.table.setColumnWidth(6, 72)
+        self.table.setColumnWidth(7, 100)
+        self.table.setColumnWidth(8, 156)
         root.addWidget(self.table, 1)
 
         self.footer_lbl = QLabel("")
-        self.footer_lbl.setStyleSheet("color: #64748B; font-size: 11px; margin-bottom: 0px;")
+        self.footer_lbl.setStyleSheet("color: #94A3B8; font-size: 11px;")
         root.addWidget(self.footer_lbl)
 
     def _load_ssh_profiles(self) -> List[Dict[str, Any]]:
@@ -473,7 +521,10 @@ class InventoryView(QWidget):
             self.table.insertRow(r)
             self.table.setRowHeight(r, 42)
 
-            self.table.setItem(r, 0, QTableWidgetItem(dev["hostname"]))
+            host_item = QTableWidgetItem(dev["hostname"])
+            host_item.setData(Qt.UserRole, dev["id"])
+            host_item.setData(Qt.UserRole + 1, dev["management_ip"])
+            self.table.setItem(r, 0, host_item)
             ip_item = QTableWidgetItem(dev["management_ip"])
             ip_item.setForeground(QColor("#818CF8"))
             self.table.setItem(r, 1, ip_item)
@@ -503,19 +554,22 @@ class InventoryView(QWidget):
             self.table.setItem(r, 7, QTableWidgetItem(sw))
 
             act_w = QWidget()
+            act_w.setStyleSheet("background: transparent;")
             act_l = QHBoxLayout(act_w)
-            act_l.setContentsMargins(4, 2, 4, 2)
-            act_l.setSpacing(4)
+            act_l.setContentsMargins(4, 3, 4, 3)
+            act_l.setSpacing(6)
 
             btn_edit = QPushButton(_("inv_btn_edit", "Edit"))
-            btn_edit.setObjectName("SecondaryButton")
-            btn_edit.setFixedHeight(26)
-            btn_edit.clicked.connect(lambda _c, did=dev["id"]: self.on_edit_device(did))
+            btn_edit.setObjectName("TableActionButton")
+            btn_edit.setMinimumHeight(26)
+            btn_edit.setCursor(Qt.PointingHandCursor)
+            btn_edit.clicked.connect(lambda _c=False, did=dev["id"]: self.on_edit_device(did))
 
             btn_del = QPushButton(_("inv_btn_delete", "Delete"))
-            btn_del.setObjectName("DangerButton")
-            btn_del.setFixedHeight(26)
-            btn_del.clicked.connect(lambda _c, did=dev["id"]: self.on_delete_device(did))
+            btn_del.setObjectName("TableDangerButton")
+            btn_del.setMinimumHeight(26)
+            btn_del.setCursor(Qt.PointingHandCursor)
+            btn_del.clicked.connect(lambda _c=False, did=dev["id"]: self.on_delete_device(did))
 
             act_l.addWidget(btn_edit)
             act_l.addWidget(btn_del)
@@ -526,6 +580,39 @@ class InventoryView(QWidget):
                 len(devices), len(self._devices_cache)
             )
         )
+
+    def _on_row_double_clicked(self, row: int, _col: int) -> None:
+        it = self.table.item(row, 0)
+        if it and it.data(Qt.UserRole) is not None:
+            self.on_edit_device(int(it.data(Qt.UserRole)))
+
+    def _on_table_context_menu(self, pos) -> None:
+        item = self.table.itemAt(pos)
+        if not item:
+            return
+        row = item.row()
+        host_item = self.table.item(row, 0)
+        if not host_item or host_item.data(Qt.UserRole) is None:
+            return
+        did = int(host_item.data(Qt.UserRole))
+        ip = str(host_item.data(Qt.UserRole + 1) or "")
+
+        menu = QMenu(self)
+        act_edit = menu.addAction(_("inv_btn_edit", "Edit"))
+        act_topo = menu.addAction(_("site_btn_topo", "Open in Topology"))
+        act_ssh = menu.addAction(_("topo_btn_access", "Open in Access Center"))
+        menu.addSeparator()
+        act_del = menu.addAction(_("inv_btn_delete", "Delete"))
+
+        chosen = menu.exec(self.table.viewport().mapToGlobal(pos))
+        if chosen == act_edit:
+            self.on_edit_device(did)
+        elif chosen == act_topo:
+            self.open_in_topology.emit(did)
+        elif chosen == act_ssh and ip:
+            self.open_in_access_center.emit(ip, "SSH")
+        elif chosen == act_del:
+            self.on_delete_device(did)
 
     def on_add_device(self) -> None:
         dlg = DeviceEditorDialog(
@@ -571,20 +658,26 @@ class InventoryView(QWidget):
             QMessageBox.No,
         )
         if reply == QMessageBox.Yes:
-            self.inventory.delete_device(device_id)
-            self.refresh_data()
+            try:
+                self.inventory.delete_device(device_id)
+                self.refresh_data()
+            except Exception as exc:
+                QMessageBox.critical(self, _("msg_error", "Error"), str(exc))
 
     def on_sync_sources(self) -> None:
-        res = self.inventory.sync_from_snmp_and_hosts()
-        self.site_manager.migrate_legacy_config_sites(self.config)
-        self.refresh_data()
-        QMessageBox.information(
-            self,
-            _("msg_info", "Information"),
-            _("inv_sync_done", "Synchronized infrastructure inventory: {} created, {} updated.").format(
-                res["created"], res["updated"]
-            ),
-        )
+        try:
+            res = self.inventory.sync_from_snmp_and_hosts()
+            self.site_manager.migrate_legacy_config_sites(self.config)
+            self.refresh_data()
+            QMessageBox.information(
+                self,
+                _("msg_info", "Information"),
+                _("inv_sync_done", "Synchronized infrastructure inventory: {} created, {} updated.").format(
+                    res["created"], res["updated"]
+                ),
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, _("msg_error", "Error"), str(exc))
 
     def on_check_duplicates(self) -> None:
         dup_ips = self.inventory.find_duplicate_ips()
@@ -607,29 +700,38 @@ class InventoryView(QWidget):
         path, _f = QFileDialog.getOpenFileName(self, _("inv_btn_import_csv", "Import CSV"), "", "CSV Files (*.csv)")
         if not path:
             return
-        res = self.inventory.import_csv(path, default_site_id=self.site_filter.currentData())
-        self.refresh_data()
-        QMessageBox.information(
-            self,
-            _("msg_info", "Information"),
-            _("inv_import_done", "CSV Import: {} imported, {} duplicates skipped, {} errors.").format(
-                res["imported"], res["skipped_duplicates"], len(res["errors"])
-            ),
-        )
+        try:
+            res = self.inventory.import_csv(path, default_site_id=self.site_filter.currentData())
+            self.refresh_data()
+            QMessageBox.information(
+                self,
+                _("msg_info", "Information"),
+                _("inv_import_done", "CSV Import: {} imported, {} duplicates skipped, {} errors.").format(
+                    res["imported"], res["skipped_duplicates"], len(res["errors"])
+                ),
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, _("msg_error", "Error"), str(exc))
 
     def on_export_csv(self) -> None:
         path, _f = QFileDialog.getSaveFileName(self, _("inv_btn_export_csv", "Export CSV"), "BahaaIT_Inventory.csv", "CSV Files (*.csv)")
         if not path:
             return
-        self.inventory.export_csv(path)
-        QMessageBox.information(self, _("msg_success", "Success"), _("inv_export_ok", "Inventory exported successfully."))
+        try:
+            self.inventory.export_csv(path)
+            QMessageBox.information(self, _("msg_success", "Success"), _("inv_export_ok", "Inventory exported successfully."))
+        except Exception as exc:
+            QMessageBox.critical(self, _("msg_error", "Error"), str(exc))
 
     def on_export_pdf(self) -> None:
         path, _f = QFileDialog.getSaveFileName(self, _("inv_btn_export_pdf", "Export PDF"), "BahaaIT_Inventory_Report.pdf", "PDF Files (*.pdf)")
         if not path:
             return
-        ok, err = self.inventory.export_pdf(path)
-        if ok:
-            QMessageBox.information(self, _("msg_success", "Success"), _("inv_export_ok", "Inventory exported successfully."))
-        else:
-            QMessageBox.critical(self, _("msg_error", "Error"), str(err))
+        try:
+            ok, err = self.inventory.export_pdf(path)
+            if ok:
+                QMessageBox.information(self, _("msg_success", "Success"), _("inv_export_ok", "Inventory exported successfully."))
+            else:
+                QMessageBox.critical(self, _("msg_error", "Error"), str(err))
+        except Exception as exc:
+            QMessageBox.critical(self, _("msg_error", "Error"), str(exc))

@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 
 import pyqtgraph as pg
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QColor, QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
@@ -38,7 +38,7 @@ from core.interface_monitor import filter_interfaces
 from core.snmp_engine import AsyncSNMPEngine
 from core.snmp_profiles import SNMP_PROFILES, get_profile
 from utils.db import DatabaseManager
-from utils.i18n import _
+from utils.i18n import _, escape_qt_mnemonic
 
 
 _STATUS_COLORS = {
@@ -47,10 +47,13 @@ _STATUS_COLORS = {
     "NORMAL": "#10B981",
     "ACTIVE": "#10B981",
     "DELIVERING": "#10B981",
+    "RESOLVED": "#10B981",
     "DEGRADED": "#F59E0B",
     "WARNING": "#F59E0B",
     "DORMANT": "#F59E0B",
+    "ACKNOWLEDGED": "#F59E0B",
     "TESTING": "#38BDF8",
+    "INFO": "#38BDF8",
     "OFFLINE": "#F43F5E",
     "DOWN": "#F43F5E",
     "CRITICAL": "#F43F5E",
@@ -111,11 +114,16 @@ def _make_readonly_table(headers: List[str]) -> QTableWidget:
     tbl.setSelectionBehavior(QAbstractItemView.SelectRows)
     tbl.setSelectionMode(QAbstractItemView.SingleSelection)
     tbl.verticalHeader().setVisible(False)
-    tbl.setAlternatingRowColors(False)
+    tbl.verticalHeader().setDefaultSectionSize(34)
+    tbl.setAlternatingRowColors(True)
     tbl.horizontalHeader().setStretchLastSection(True)
     tbl.setStyleSheet(
-        "QTableWidget { background-color: #0F172A; border: 1px solid #334155; border-radius: 8px; color: #F1F5F9; }"
-        "QHeaderView::section { background-color: #1E293B; color: #94A3B8; font-weight: bold; border: none; padding: 6px; }"
+        "QTableWidget { background-color: #0F172A; alternate-background-color: #162032; "
+        "border: 1px solid #334155; border-radius: 8px; color: #F1F5F9; gridline-color: rgba(255,255,255,0.05); }"
+        "QTableWidget::item { padding: 4px 6px; }"
+        "QTableWidget::item:selected { background-color: rgba(79, 70, 229, 0.38); color: #FFFFFF; }"
+        "QHeaderView::section { background-color: #1E293B; color: #CBD5E1; font-weight: 700; border: none; "
+        "border-bottom: 1px solid #334155; padding: 6px; font-size: 11px; }"
     )
     return tbl
 
@@ -142,27 +150,36 @@ class DeviceDetailsDialog(QDialog):
         dev = self.db.get_snmp_device(self.device_id)
         dev_name = dev.get("name", f"Device #{self.device_id}") if dev else f"Device #{self.device_id}"
         self.setWindowTitle(_("devdet_title", "Device Intelligence Details — {}").format(dev_name))
-        self.setMinimumSize(1060, 720)
-        self.resize(1120, 760)
+        screen = QGuiApplication.primaryScreen()
+        if screen is not None:
+            avail = screen.availableGeometry()
+            w = min(1100, int(avail.width() * 0.92))
+            h = min(740, int(avail.height() * 0.88))
+            self.setMinimumSize(min(900, w), min(580, h))
+            self.resize(w, h)
+            self.move(avail.x() + (avail.width() - w) // 2, avail.y() + (avail.height() - h) // 2)
+        else:
+            self.setMinimumSize(900, 580)
+            self.resize(1060, 720)
         self.setStyleSheet("QDialog { background-color: #0F172A; color: #F1F5F9; }")
 
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 16, 18, 16)
-        root.setSpacing(12)
+        root.setSpacing(10)
 
         # Header Card
         header_card = QFrame()
-        header_card.setObjectName("Card")
-        header_card.setStyleSheet("QFrame#Card { background-color: #1E293B; border-radius: 12px; border: 1px solid #334155; }")
+        header_card.setObjectName("PanelCard")
         h_lay = QHBoxLayout(header_card)
         h_lay.setContentsMargins(16, 12, 16, 12)
-        h_lay.setSpacing(14)
+        h_lay.setSpacing(12)
 
         left_info = QVBoxLayout()
         left_info.setSpacing(2)
         self.hdr_name_lbl = QLabel(dev_name)
         self.hdr_name_lbl.setStyleSheet("font-size: 18px; font-weight: 800; color: #FFFFFF; margin-bottom: 0px;")
         self.hdr_sub_lbl = QLabel("")
+        self.hdr_sub_lbl.setWordWrap(True)
         self.hdr_sub_lbl.setStyleSheet("font-size: 12px; color: #94A3B8; margin-bottom: 0px;")
         left_info.addWidget(self.hdr_name_lbl)
         left_info.addWidget(self.hdr_sub_lbl)
@@ -174,27 +191,34 @@ class DeviceDetailsDialog(QDialog):
 
         self.hdr_status_badge = QLabel("UNKNOWN")
         self.hdr_status_badge.setAlignment(Qt.AlignCenter)
-        self.hdr_status_badge.setFixedWidth(105)
+        self.hdr_status_badge.setMinimumWidth(96)
         self.hdr_status_badge.setStyleSheet(
-            "background-color: #334155; color: #FFFFFF; border-radius: 8px; padding: 6px 10px; font-weight: bold; margin-bottom: 0px;"
+            "background-color: #334155; color: #F1F5F9; border-radius: 8px; padding: 6px 10px; font-weight: 700; margin-bottom: 0px;"
         )
         h_lay.addWidget(self.hdr_status_badge)
 
         self.btn_poll_now = QPushButton(_("devdet_poll_now", "Poll Now"))
         self.btn_poll_now.setObjectName("PrimaryButton")
+        self.btn_poll_now.setCursor(Qt.PointingHandCursor)
         self.btn_poll_now.setEnabled(self.snmp_engine is not None and dev is not None)
+        if self.snmp_engine is None:
+            self.btn_poll_now.setToolTip(_("snmp_status_stopped", "SNMP Polling Engine not attached in this context"))
         self.btn_poll_now.clicked.connect(self._on_poll_now)
         h_lay.addWidget(self.btn_poll_now)
 
         self.btn_refresh = QPushButton(_("devdet_refresh", "Refresh"))
         self.btn_refresh.setObjectName("SecondaryButton")
+        self.btn_refresh.setCursor(Qt.PointingHandCursor)
         self.btn_refresh.clicked.connect(self.refresh_all)
         h_lay.addWidget(self.btn_refresh)
 
         root.addWidget(header_card)
 
-        # 10-Tab Widget (indices 0..9)
+        # 10-Tab Widget (indices 0..9, compact tab padding so all tabs fit cleanly)
         self.tabs = QTabWidget()
+        self.tabs.setStyleSheet(
+            "QTabBar::tab { padding: 7px 12px; font-size: 12px; margin-right: 3px; min-height: 20px; }"
+        )
         root.addWidget(self.tabs, 1)
 
         self._build_tab0_overview()
@@ -359,7 +383,7 @@ class DeviceDetailsDialog(QDialog):
         self.h_temp_table = _make_readonly_table(["Sensor", "Temperature (°C)", "Warn / Crit (°C)", "Status"])
         self.h_temp_table.setMaximumHeight(150)
         lay.addWidget(self.h_temp_table, 1)
-        self.tabs.addTab(w, _("devdet_tab_health", "CPU & Memory"))
+        self.tabs.addTab(w, escape_qt_mnemonic(_("devdet_tab_health", "CPU & Memory")))
 
     def _build_tab2_interfaces(self) -> None:
         w = QWidget()
@@ -382,10 +406,12 @@ class DeviceDetailsDialog(QDialog):
             btn = QPushButton(_(key, fallback))
             btn.setCheckable(True)
             btn.setChecked(mode == "ALL")
+            btn.setCursor(Qt.PointingHandCursor)
             btn.setProperty("filter_mode", mode)
             btn.clicked.connect(lambda _c, m=mode: self._set_interface_filter(m))
             btn.setStyleSheet(
                 "QPushButton { background-color: #1E293B; color: #CBD5E1; border: 1px solid #334155; border-radius: 6px; padding: 5px 10px; font-size: 11px; }"
+                "QPushButton:hover { border-color: #6366F1; color: #FFFFFF; background-color: #242F42; }"
                 "QPushButton:checked { background-color: #4F46E5; color: #FFFFFF; border-color: #6366F1; font-weight: bold; }"
             )
             self._if_filter_group.addButton(btn)
@@ -534,18 +560,22 @@ class DeviceDetailsDialog(QDialog):
         lay.addWidget(self.ev_detail_box, 1)
 
         acts = QHBoxLayout()
-        btn_ack = QPushButton(_("intel_btn_ack", "Acknowledge"))
-        btn_ack.setObjectName("SecondaryButton")
-        btn_ack.clicked.connect(self._ack_selected_anomaly)
-        btn_res = QPushButton(_("intel_btn_resolve", "Mark Resolved"))
-        btn_res.setObjectName("PrimaryButton")
-        btn_res.clicked.connect(self._resolve_selected_anomaly)
+        self.btn_ack = QPushButton(_("intel_btn_ack", "Acknowledge"))
+        self.btn_ack.setObjectName("SecondaryButton")
+        self.btn_ack.setCursor(Qt.PointingHandCursor)
+        self.btn_ack.setEnabled(False)
+        self.btn_ack.clicked.connect(self._ack_selected_anomaly)
+        self.btn_res = QPushButton(_("intel_btn_resolve", "Mark Resolved"))
+        self.btn_res.setObjectName("PrimaryButton")
+        self.btn_res.setCursor(Qt.PointingHandCursor)
+        self.btn_res.setEnabled(False)
+        self.btn_res.clicked.connect(self._resolve_selected_anomaly)
         acts.addStretch()
-        acts.addWidget(btn_ack)
-        acts.addWidget(btn_res)
+        acts.addWidget(self.btn_ack)
+        acts.addWidget(self.btn_res)
         lay.addLayout(acts)
 
-        self.tabs.addTab(w, _("devdet_tab_events", "Events & Anomalies"))
+        self.tabs.addTab(w, escape_qt_mnemonic(_("devdet_tab_events", "Events & Anomalies")))
 
     def _build_tab8_history(self) -> None:
         w = QWidget()
@@ -599,7 +629,9 @@ class DeviceDetailsDialog(QDialog):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("background: transparent;")
         inner = QWidget()
+        inner.setStyleSheet("background: transparent;")
         form = QFormLayout(inner)
         form.setSpacing(10)
 
@@ -714,9 +746,10 @@ class DeviceDetailsDialog(QDialog):
             f"{dev['ip_address']}:{dev['port']}  •  {dev.get('vendor', 'Generic')} {dev.get('model', '')}  •  "
             f"FW: {dev.get('firmware') or 'N/A'}  •  SNMP {dev.get('snmp_version', 'v2c')}"
         )
+        fg_col = "#0F172A" if status in ("DEGRADED", "WARNING", "TESTING", "UNKNOWN") else "#FFFFFF"
         self.hdr_status_badge.setText(status)
         self.hdr_status_badge.setStyleSheet(
-            f"background-color: {scolor}; color: #FFFFFF; border-radius: 8px; padding: 6px 10px; font-weight: bold; margin-bottom: 0px;"
+            f"background-color: {scolor}; color: {fg_col}; border-radius: 8px; padding: 6px 12px; font-weight: 700; margin-bottom: 0px;"
         )
         ticks = snap.get("last_uptime_ticks") or dev.get("last_uptime_ticks")
         self.hdr_uptime_lbl.setText(f"{_('devdet_uptime', 'Uptime:')} {format_uptime(ticks)}")
@@ -958,7 +991,9 @@ class DeviceDetailsDialog(QDialog):
         ins = [float(r["in_mbps"]) for r in rows]
         outs = [float(r["out_mbps"]) for r in rows]
         utils = [float(r["utilization_pct"]) for r in rows]
-        self.tr_io_plot.addLegend()
+        if not getattr(self.tr_io_plot, "_legend_added", False):
+            self.tr_io_plot.addLegend()
+            self.tr_io_plot._legend_added = True
         self.tr_io_plot.plot(xs, ins, pen=pg.mkPen("#10B981", width=2), name="Inbound (Mbps)")
         self.tr_io_plot.plot(xs, outs, pen=pg.mkPen("#6366F1", width=2), name="Outbound (Mbps)")
         self.tr_util_plot.plot(xs, utils, pen=pg.mkPen("#F59E0B", width=2))
@@ -1063,14 +1098,27 @@ class DeviceDetailsDialog(QDialog):
             self.ev_table.setItem(row, 2, QTableWidgetItem(str(a.get("confidence", ""))))
             self.ev_table.setItem(row, 3, QTableWidgetItem(str(a.get("event_type", ""))))
             self.ev_table.setItem(row, 4, QTableWidgetItem(str(a.get("title", ""))))
-            self.ev_table.setItem(row, 5, QTableWidgetItem(str(a.get("status", ""))))
+            anom_st = str(a.get("status", ""))
+            st_item = QTableWidgetItem(anom_st)
+            st_item.setForeground(QColor(_STATUS_COLORS.get(anom_st.upper(), "#94A3B8")))
+            self.ev_table.setItem(row, 5, st_item)
         self.ev_detail_box.clear()
+        if hasattr(self, "btn_ack"):
+            self.btn_ack.setEnabled(False)
+            self.btn_res.setEnabled(False)
 
     def _on_anomaly_selected(self) -> None:
         row = self.ev_table.currentRow()
         if row < 0 or row >= len(getattr(self, "_device_anomalies", [])):
+            if hasattr(self, "btn_ack"):
+                self.btn_ack.setEnabled(False)
+                self.btn_res.setEnabled(False)
             return
         a = self._device_anomalies[row]
+        if hasattr(self, "btn_ack"):
+            st = str(a.get("status", "")).upper()
+            self.btn_ack.setEnabled(st == "ACTIVE")
+            self.btn_res.setEnabled(st in ("ACTIVE", "ACKNOWLEDGED"))
         lines = [f"TITLE: {a.get('title', '')}", "", "OBSERVED EVIDENCE (FACTS):"]
         for ev in a.get("evidence", []):
             lines.append(f"  • {ev}")
@@ -1114,7 +1162,9 @@ class DeviceDetailsDialog(QDialog):
                 xs = list(range(len(agg_rows)))
                 avgs = [float(r["avg_value"]) for r in agg_rows]
                 maxs = [float(r["max_value"]) for r in agg_rows]
-                self.hist_plot.addLegend()
+                if not getattr(self.hist_plot, "_legend_added", False):
+                    self.hist_plot.addLegend()
+                    self.hist_plot._legend_added = True
                 self.hist_plot.plot(xs, avgs, pen=pg.mkPen("#6366F1", width=2), name="Avg")
                 self.hist_plot.plot(xs, maxs, pen=pg.mkPen("#F59E0B", width=1.5), name="Max")
                 self.hist_stats_lbl.setText(
@@ -1151,6 +1201,16 @@ class DeviceDetailsDialog(QDialog):
         self.cfg_anomaly.setChecked(bool(dev.get("anomaly_detection_enabled", True)))
 
     def _save_device_config(self) -> None:
+        pairs = [
+            ("CPU", self.cfg_cpu_warn.value(), self.cfg_cpu_crit.value()),
+            ("Memory", self.cfg_mem_warn.value(), self.cfg_mem_crit.value()),
+            ("Temperature", self.cfg_temp_warn.value(), self.cfg_temp_crit.value()),
+            ("PoE", self.cfg_poe_warn.value(), self.cfg_poe_crit.value()),
+        ]
+        for label, wv, cv in pairs:
+            if wv >= cv:
+                QMessageBox.warning(self, _("msg_warning", "Warning"), f"{label}: Warning ({wv}) must be less than Critical ({cv}).")
+                return
         updates = {
             "name": self.cfg_name.text().strip() or f"Device #{self.device_id}",
             "location": self.cfg_location.text().strip(),
@@ -1200,7 +1260,14 @@ class DeviceDetailsDialog(QDialog):
         self.btn_poll_now.setText(_("devdet_poll_now", "Poll Now"))
         QMessageBox.warning(self, _("msg_error", "Error"), err)
 
-    def closeEvent(self, event) -> None:
+    def _stop_poll_worker(self) -> None:
         if self._poll_worker is not None and self._poll_worker.isRunning():
-            self._poll_worker.wait(2000)
+            self._poll_worker.wait(2500)
+
+    def done(self, r: int) -> None:
+        self._stop_poll_worker()
+        super().done(r)
+
+    def closeEvent(self, event) -> None:
+        self._stop_poll_worker()
         super().closeEvent(event)

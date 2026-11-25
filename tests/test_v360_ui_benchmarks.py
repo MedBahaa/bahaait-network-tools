@@ -115,13 +115,13 @@ class TestV360BenchmarksAndWiring:
         fr_keys = set(tm.translations["fr"].keys())
         assert en_keys == fr_keys, f"i18n mismatch: en-fr={en_keys - fr_keys}, fr-en={fr_keys - en_keys}"
 
-        assert CURRENT_VERSION == "v3.6.0"
+        assert CURRENT_VERSION == "v3.6.1"
 
         iss_path = os.path.join(ROOT_DIR, "build_scripts", "setup_compiler.iss")
         with open(iss_path, "r", encoding="utf-8") as fh:
             iss_txt = fh.read()
-        assert "AppVersion=3.6.0" in iss_txt
-        assert "OutputBaseFilename=Install_BahaaIT_v3.6.0" in iss_txt
+        assert "AppVersion=3.6.1" in iss_txt
+        assert "OutputBaseFilename=Install_BahaaIT_v3.6.1" in iss_txt
 
         rn36 = os.path.join(ROOT_DIR, "RELEASE_NOTES_v3.6.0.md")
         assert os.path.exists(rn36)

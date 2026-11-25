@@ -8,18 +8,21 @@ from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -34,7 +37,7 @@ from core.audit_logger import AuditLogger
 from core.inventory_manager import InventoryManager
 from core.site_manager import CONNECTIVITY_MODES, SiteManager
 from utils.db import DatabaseManager
-from utils.i18n import _
+from utils.i18n import _, escape_qt_mnemonic
 
 
 class PingWorker(QThread):
@@ -132,12 +135,22 @@ class NetworkSiteDialog(QDialog):
         super().__init__(parent)
         self.site = site
         self.setWindowTitle(_("site_dlg_edit", "Edit Network Site") if site else _("site_dlg_add", "Add Network Site"))
+        screen = QApplication.primaryScreen().availableGeometry() if QApplication.primaryScreen() else None
+        max_h = int(screen.height() * 0.85) if screen else 640
         self.setMinimumWidth(520)
+        self.setMaximumHeight(max_h)
         self.setStyleSheet("QDialog { background-color: #0F172A; color: #F1F5F9; }")
 
         root = QVBoxLayout(self)
-        form = QFormLayout()
-        form.setSpacing(8)
+        root.setContentsMargins(18, 16, 18, 16)
+        root.setSpacing(12)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll_body = QWidget()
+        form = QFormLayout(scroll_body)
+        form.setSpacing(10)
 
         self.name_edit = QLineEdit(site.get("name", "") if site else "")
         self.code_edit = QLineEdit(site.get("site_code", "") if site else "")
@@ -162,7 +175,7 @@ class NetworkSiteDialog(QDialog):
 
         self.desc_edit = QLineEdit(site.get("description", "") if site else "")
 
-        form.addRow(_("site_col_name", "Site Name*:"), self.name_edit)
+        form.addRow(_("site_col_name", "Site Name") + " *:", self.name_edit)
         form.addRow(_("site_col_code", "Site Code:"), self.code_edit)
         form.addRow(_("site_col_org", "Organization:"), self.org_edit)
         form.addRow(_("site_col_region", "Region:"), self.reg_edit)
@@ -175,12 +188,31 @@ class NetworkSiteDialog(QDialog):
         form.addRow(_("site_col_contact", "Technical Contact:"), self.contact_edit)
         form.addRow("Email:", self.email_edit)
         form.addRow(_("common_desc", "Description:"), self.desc_edit)
-        root.addLayout(form)
+        scroll.setWidget(scroll_body)
+        root.addWidget(scroll, 1)
 
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        btns.accepted.connect(self.accept)
+        ok_b = btns.button(QDialogButtonBox.Ok)
+        cancel_b = btns.button(QDialogButtonBox.Cancel)
+        if ok_b:
+            ok_b.setObjectName("PrimaryButton")
+            ok_b.setCursor(Qt.PointingHandCursor)
+        if cancel_b:
+            cancel_b.setObjectName("SecondaryButton")
+            cancel_b.setCursor(Qt.PointingHandCursor)
+        btns.accepted.connect(self._on_accept)
         btns.rejected.connect(self.reject)
         root.addWidget(btns)
+
+    def _on_accept(self) -> None:
+        if not self.name_edit.text().strip():
+            QMessageBox.warning(
+                self,
+                _("msg_warning", "Warning"),
+                "Site Name is required.",
+            )
+            return
+        self.accept()
 
     def get_payload(self) -> Dict[str, Any]:
         return {
@@ -245,51 +277,75 @@ class SitesView(QWidget):
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 16, 20, 16)
-        root.setSpacing(12)
+        root.setSpacing(10)
 
-        # Header
-        hdr = QHBoxLayout()
+        # Header Row 1: Title + Primary CTA
+        hdr_top = QHBoxLayout()
         col = QVBoxLayout()
+        col.setSpacing(2)
         t_lbl = QLabel(_("site_title", "Multi-Site Infrastructure Management"))
+        t_lbl.setObjectName("Title")
         t_lbl.setStyleSheet("font-size: 20px; font-weight: bold; color: #F8FAFC;")
         s_lbl = QLabel(_("site_subtitle", "Hierarchical sites (Organization -> Region -> Site), availability dashboards & comparisons"))
+        s_lbl.setWordWrap(True)
         s_lbl.setStyleSheet("color: #94A3B8; font-size: 12px;")
         col.addWidget(t_lbl)
         col.addWidget(s_lbl)
-        hdr.addLayout(col)
-        hdr.addStretch()
+        hdr_top.addLayout(col, 1)
 
         self.btn_add = QPushButton("+ " + _("site_btn_add", "Add Site"))
-        self.btn_add.setProperty("class", "PrimaryButton")
+        self.btn_add.setObjectName("PrimaryButton")
+        self.btn_add.setCursor(Qt.PointingHandCursor)
+        self.btn_add.setToolTip(_("site_btn_add", "Add Site"))
         self.btn_add.clicked.connect(self.add_site)
+        hdr_top.addWidget(self.btn_add)
+        root.addLayout(hdr_top)
+
+        # Header Row 2: Secondary Site Management Actions
+        hdr_btns = QHBoxLayout()
+        hdr_btns.setSpacing(8)
         self.btn_edit = QPushButton(_("site_btn_edit", "Edit Site"))
+        self.btn_edit.setObjectName("SecondaryButton")
         self.btn_edit.clicked.connect(self.edit_site)
         self.btn_del = QPushButton(_("site_btn_del", "Delete Site"))
+        self.btn_del.setObjectName("DangerButton")
         self.btn_del.clicked.connect(self.delete_site)
         self.btn_import = QPushButton(_("inv_btn_import_csv", "Import CSV"))
+        self.btn_import.setObjectName("SecondaryButton")
         self.btn_import.clicked.connect(self.import_csv)
         self.btn_exp_csv = QPushButton(_("inv_btn_export_csv", "Export CSV"))
+        self.btn_exp_csv.setObjectName("SecondaryButton")
         self.btn_exp_csv.clicked.connect(self.export_csv)
         self.btn_exp_pdf = QPushButton(_("inv_btn_export_pdf", "Export PDF"))
+        self.btn_exp_pdf.setObjectName("SecondaryButton")
         self.btn_exp_pdf.clicked.connect(self.export_pdf)
-        for b in (self.btn_add, self.btn_edit, self.btn_del, self.btn_import, self.btn_exp_csv, self.btn_exp_pdf):
-            hdr.addWidget(b)
-        root.addLayout(hdr)
+        for b in (self.btn_edit, self.btn_del, self.btn_import, self.btn_exp_csv, self.btn_exp_pdf):
+            b.setCursor(Qt.PointingHandCursor)
+            b.setToolTip(b.text())
+            hdr_btns.addWidget(b)
+        hdr_btns.addStretch()
+        root.addLayout(hdr_btns)
 
         splitter = QSplitter(Qt.Horizontal)
+        splitter.setChildrenCollapsible(False)
 
-        # Left Panel: Organization -> Region -> Site Hierarchy Tree
+        # Left Panel: Organization -> Region -> Site Hierarchy Tree (scoped #PanelCard)
         left = QFrame()
-        left.setMinimumWidth(260)
+        left.setObjectName("PanelCard")
+        left.setMinimumWidth(250)
         left.setMaximumWidth(340)
-        left.setStyleSheet("QFrame { background-color: #1E293B; border: 1px solid #334155; border-radius: 10px; }")
         l_lay = QVBoxLayout(left)
-        l_lay.setContentsMargins(10, 10, 10, 10)
-        l_lay.addWidget(QLabel(_("site_tree_hdr", "Organization / Region / Site")))
+        l_lay.setContentsMargins(12, 12, 12, 12)
+        l_lay.setSpacing(8)
+        tree_hdr = QLabel(_("site_tree_hdr", "Organization / Region / Site"))
+        tree_hdr.setObjectName("SectionHeader")
+        l_lay.addWidget(tree_hdr)
 
         self.site_tree = QTreeWidget()
         self.site_tree.setHeaderLabels([_("site_col_name", "Site"), _("site_col_mode", "Mode")])
+        self.site_tree.header().setStretchLastSection(False)
         self.site_tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.site_tree.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.site_tree.currentItemChanged.connect(self._on_tree_selection)
         l_lay.addWidget(self.site_tree, 1)
         splitter.addWidget(left)
@@ -300,60 +356,85 @@ class SitesView(QWidget):
         # Tab 1: Selected Site Dashboard & Devices
         t1 = QWidget()
         t1_l = QVBoxLayout(t1)
+        t1_l.setContentsMargins(10, 10, 10, 10)
+        t1_l.setSpacing(10)
 
-        # KPI Cards
-        krow = QHBoxLayout()
+        # KPI Cards (3x2 grid avoids cramping at 1280px)
+        kgrid = QGridLayout()
+        kgrid.setSpacing(8)
         self.kpi_devs = self._make_kpi(_("site_kpi_devs", "Devices"), "0", "#38BDF8")
         self.kpi_online = self._make_kpi(_("inv_kpi_online", "Online"), "0", "#10B981")
         self.kpi_offline = self._make_kpi(_("site_kpi_off", "Offline / Deg"), "0", "#F43F5E")
         self.kpi_avail = self._make_kpi(_("site_kpi_avail", "Availability"), "0%", "#10B981")
         self.kpi_lat = self._make_kpi(_("site_kpi_lat", "Avg Latency"), "-", "#818CF8")
         self.kpi_inc = self._make_kpi(_("site_kpi_inc", "Open Incidents"), "0", "#F59E0B")
-        for c in (self.kpi_devs, self.kpi_online, self.kpi_offline, self.kpi_avail, self.kpi_lat, self.kpi_inc):
-            krow.addWidget(c)
-        t1_l.addLayout(krow)
+        cards = [self.kpi_devs, self.kpi_online, self.kpi_offline, self.kpi_avail, self.kpi_lat, self.kpi_inc]
+        for idx, c in enumerate(cards):
+            kgrid.addWidget(c, idx // 3, idx % 3)
+        for col_i in range(3):
+            kgrid.setColumnStretch(col_i, 1)
+        t1_l.addLayout(kgrid)
 
         self.site_meta_lbl = QLabel(_("site_select_hint", "Select a site on the left to inspect KPIs and equipment."))
+        self.site_meta_lbl.setObjectName("SiteMetaBanner")
         self.site_meta_lbl.setWordWrap(True)
-        self.site_meta_lbl.setStyleSheet("color: #CBD5E1; background-color: #1E293B; padding: 10px; border-radius: 8px;")
+        self.site_meta_lbl.setStyleSheet(
+            "#SiteMetaBanner { color: #CBD5E1; background-color: #1E293B; border: 1px solid #334155; padding: 10px 12px; border-radius: 8px; }"
+        )
         t1_l.addWidget(self.site_meta_lbl)
 
         # Device Action Toolbar
         dev_bar = QHBoxLayout()
+        dev_bar.setSpacing(8)
         self.btn_ping_all = QPushButton(_("site_btn_ping_all", "Ping Site Devices"))
-        self.btn_ping_all.setProperty("class", "PrimaryButton")
+        self.btn_ping_all.setObjectName("PrimaryButton")
         self.btn_ping_all.clicked.connect(self.ping_all_devices)
         self.btn_open_topo = QPushButton(_("site_btn_topo", "Open Site in Topology"))
+        self.btn_open_topo.setObjectName("SecondaryButton")
         self.btn_open_topo.clicked.connect(self._emit_open_topology)
         self.btn_open_access = QPushButton(_("topo_btn_access", "Open in Access Center"))
+        self.btn_open_access.setObjectName("SecondaryButton")
         self.btn_open_access.clicked.connect(self._emit_open_access)
         self.btn_open_web = QPushButton(_("topo_btn_web", "Open Web UI"))
+        self.btn_open_web.setObjectName("SecondaryButton")
         self.btn_open_web.clicked.connect(self._emit_open_web)
         for b in (self.btn_ping_all, self.btn_open_topo, self.btn_open_access, self.btn_open_web):
+            b.setCursor(Qt.PointingHandCursor)
+            b.setToolTip(b.text())
             dev_bar.addWidget(b)
         dev_bar.addStretch()
         t1_l.addLayout(dev_bar)
 
         self.dev_table = QTableWidget(0, 7)
         self.dev_table.setHorizontalHeaderLabels([
-            _("inv_col_host", "Hostname"),
-            _("inv_col_ip", "IP Address"),
-            _("inv_col_cat", "Category"),
-            _("inv_col_vendor", "Vendor"),
+            _("inv_col_hostname", "Hostname"),
+            _("site_hdr_ip", "Management IP"),
+            _("inv_col_category", "Category"),
+            _("inv_hdr_vendor", "Vendor"),
             _("inv_col_status", "Status"),
             _("site_col_ping", "Ping"),
             _("inv_col_rack", "Rack"),
         ])
-        self.dev_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        dev_hdr = self.dev_table.horizontalHeader()
+        dev_hdr.setSectionResizeMode(QHeaderView.Interactive)
+        dev_hdr.setSectionResizeMode(0, QHeaderView.Stretch)
+        self.dev_table.setColumnWidth(1, 122)
+        self.dev_table.setColumnWidth(2, 112)
+        self.dev_table.setColumnWidth(3, 105)
+        self.dev_table.setColumnWidth(4, 86)
+        self.dev_table.setColumnWidth(5, 80)
+        self.dev_table.setColumnWidth(6, 95)
         self.dev_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.dev_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.dev_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.dev_table.verticalHeader().setVisible(False)
         t1_l.addWidget(self.dev_table, 1)
-        self.tabs.addTab(t1, _("site_tab_dash", "Site Dashboard & Devices"))
+        self.tabs.addTab(t1, escape_qt_mnemonic(_("site_tab_dash", "Site Dashboard & Devices")))
 
         # Tab 2: Multi-Site Comparison
         t2 = QWidget()
         t2_l = QVBoxLayout(t2)
+        t2_l.setContentsMargins(10, 10, 10, 10)
         self.comp_table = QTableWidget(0, 9)
         self.comp_table.setHorizontalHeaderLabels([
             _("site_col_name", "Site"),
@@ -366,27 +447,41 @@ class SitesView(QWidget):
             _("site_kpi_lat", "Avg Latency (ms)"),
             _("site_kpi_inc", "Incidents"),
         ])
-        self.comp_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        comp_hdr = self.comp_table.horizontalHeader()
+        comp_hdr.setSectionResizeMode(QHeaderView.Interactive)
+        comp_hdr.setSectionResizeMode(0, QHeaderView.Stretch)
+        self.comp_table.setColumnWidth(1, 112)
+        self.comp_table.setColumnWidth(2, 100)
+        self.comp_table.setColumnWidth(3, 96)
+        self.comp_table.setColumnWidth(4, 72)
+        self.comp_table.setColumnWidth(5, 70)
+        self.comp_table.setColumnWidth(6, 102)
+        self.comp_table.setColumnWidth(7, 110)
+        self.comp_table.setColumnWidth(8, 76)
         self.comp_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.comp_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.comp_table.verticalHeader().setVisible(False)
         t2_l.addWidget(self.comp_table, 1)
-        self.tabs.addTab(t2, _("site_tab_compare", "Multi-Site Comparison"))
+        self.tabs.addTab(t2, escape_qt_mnemonic(_("site_tab_compare", "Multi-Site Comparison")))
 
         splitter.addWidget(self.tabs)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 3)
+        splitter.setSizes([280, 720])
         root.addWidget(splitter, 1)
 
     @staticmethod
     def _make_kpi(title: str, value: str, accent: str) -> QFrame:
         f = QFrame()
-        f.setStyleSheet("QFrame { background-color: #1E293B; border: 1px solid #334155; border-radius: 8px; }")
+        f.setObjectName("KpiCard")
         lay = QVBoxLayout(f)
         lay.setContentsMargins(10, 8, 10, 8)
+        lay.setSpacing(2)
         v = QLabel(value)
         v.setObjectName("kpi_v")
-        v.setStyleSheet(f"font-size: 18px; font-weight: bold; color: {accent};")
+        v.setStyleSheet(f"font-size: 17px; font-weight: bold; color: {accent};")
         t = QLabel(title)
+        t.setWordWrap(True)
         t.setStyleSheet("font-size: 11px; color: #94A3B8;")
         lay.addWidget(v)
         lay.addWidget(t)
@@ -436,17 +531,25 @@ class SitesView(QWidget):
         self._refresh_selected_site_dashboard()
         self._refresh_comparison_table()
 
+    def _update_site_action_buttons(self) -> None:
+        has_site = self._selected_site_id is not None
+        self.btn_edit.setEnabled(has_site)
+        self.btn_del.setEnabled(has_site)
+        self.btn_exp_csv.setEnabled(has_site)
+        self.btn_exp_pdf.setEnabled(has_site)
+        self.btn_open_topo.setEnabled(has_site)
+
     def _on_tree_selection(self, current: Optional[QTreeWidgetItem], _prev: Optional[QTreeWidgetItem]) -> None:
         if current is None:
             return
         sid = current.data(0, Qt.UserRole)
-        if sid is not None:
-            self._selected_site_id = int(sid)
-            self._refresh_selected_site_dashboard()
+        self._selected_site_id = int(sid) if sid is not None else None
+        self._refresh_selected_site_dashboard()
 
     def _refresh_selected_site_dashboard(self) -> None:
         self.dev_table.setRowCount(0)
         self._devices_cache = []
+        self._update_site_action_buttons()
         if self._selected_site_id is None:
             for card in (self.kpi_devs, self.kpi_online, self.kpi_offline, self.kpi_avail, self.kpi_inc):
                 self._set_kpi(card, "0")
@@ -454,7 +557,12 @@ class SitesView(QWidget):
             self.site_meta_lbl.setText(_("site_select_hint", "Select a site on the left to inspect KPIs and equipment."))
             return
 
-        dash = self.site_manager.get_site_dashboard(self._selected_site_id)
+        try:
+            dash = self.site_manager.get_site_dashboard(self._selected_site_id)
+        except Exception as exc:
+            self.site_meta_lbl.setText(f"Unable to load site details: {exc}")
+            return
+
         site = dash["site"]
         self._set_kpi(self.kpi_devs, str(dash["total_devices"]))
         self._set_kpi(self.kpi_online, str(dash["online_devices"]))
@@ -571,8 +679,13 @@ class SitesView(QWidget):
         if self._selected_site_id is None:
             return
         path, _flt = QFileDialog.getSaveFileName(self, "Export Site CSV", "site_report.csv", "CSV Files (*.csv)")
-        if path:
+        if not path:
+            return
+        try:
             self.site_manager.export_site_csv(self._selected_site_id, path)
+            QMessageBox.information(self, _("msg_success", "Success"), f"Site CSV exported to:\n{path}")
+        except Exception as exc:
+            QMessageBox.critical(self, _("common_error", "Error"), str(exc))
 
     def export_pdf(self) -> None:
         if self._selected_site_id is None:
@@ -580,9 +693,14 @@ class SitesView(QWidget):
         path, _flt = QFileDialog.getSaveFileName(self, "Export Site PDF", "site_report.pdf", "PDF Files (*.pdf)")
         if not path:
             return
-        ok, msg = self.site_manager.export_site_pdf(self._selected_site_id, path)
-        if not ok:
-            QMessageBox.critical(self, "PDF Export Error", msg)
+        try:
+            ok, msg = self.site_manager.export_site_pdf(self._selected_site_id, path)
+            if ok:
+                QMessageBox.information(self, _("msg_success", "Success"), f"Site PDF exported to:\n{path}")
+            else:
+                QMessageBox.critical(self, "PDF Export Error", msg)
+        except Exception as exc:
+            QMessageBox.critical(self, "PDF Export Error", str(exc))
 
     def ping_all_devices(self) -> None:
         if not self._devices_cache:
@@ -606,10 +724,10 @@ class SitesView(QWidget):
 
     def _selected_device_dict(self) -> Optional[Dict[str, Any]]:
         r = self.dev_table.currentRow()
-        if r < 0 or r >= len(self._devices_cache):
-            return self._devices_cache[0] if self._devices_cache else None
+        if r < 0 or r >= self.dev_table.rowCount():
+            return None
         it = self.dev_table.item(r, 0)
-        did = int(it.data(Qt.UserRole)) if it else -1
+        did = int(it.data(Qt.UserRole)) if it and it.data(Qt.UserRole) is not None else -1
         for d in self._devices_cache:
             if int(d["id"]) == did:
                 return d
@@ -623,11 +741,15 @@ class SitesView(QWidget):
         d = self._selected_device_dict()
         if d:
             self.open_in_access_center.emit(d)
+        else:
+            QMessageBox.information(self, _("site_title", "Sites"), "Select a device row from the site table first.")
 
     def _emit_open_web(self) -> None:
         d = self._selected_device_dict()
         if d and d.get("management_ip"):
             self.open_in_browser.emit(f"https://{d['management_ip']}")
+        else:
+            QMessageBox.information(self, _("site_title", "Sites"), "Select a device row with a valid IP first.")
 
     def shutdown(self) -> None:
         if self._ping_worker and self._ping_worker.isRunning():

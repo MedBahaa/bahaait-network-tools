@@ -23,7 +23,7 @@ from core.topology_discovery import (
     parse_routing_next_hops,
     parse_system_arp_table,
 )
-from core.topology_graph import STATUS_COLOR_MAP, VIEW_MODES, TopologyGraphService
+from core.topology_graph import STATUS_COLOR_MAP, VIEW_MODES, TopologyGraphService, orient_topology_hierarchy
 from ui.widgets.topology_view import TopologyView
 from utils.db import DatabaseManager, InfrastructureVlan, NetworkLink
 from utils.snmp_credentials import SNMPCredentials, encrypt_credentials
@@ -331,6 +331,178 @@ class TestPhase3NetworkTopology:
             assert hasattr(view, "check_status_btn")
             assert hasattr(view, "start_status_check")
             assert view.canvas.node_items[d_down["id"]].node_data["status"] == "ONLINE"
+        finally:
+            view.shutdown()
+
+    def test_09_live_local_discovery_isolates_current_network_and_detects_gateway(self, tmp_path):
+        db = DatabaseManager(str(tmp_path / "topo_live.db"))
+        sm = SiteManager(db)
+        old_site = sm.create_site({"name": "Old-Branch", "region": "Archive", "default_gateway": "10.200.0.1"})
+        inv = InventoryManager(db, site_manager=sm)
+        inv.add_device({"hostname": "OLD-GW", "management_ip": "10.200.0.1", "category": "Router", "site_id": old_site["id"], "status": "DOWN"})
+        inv.add_device({"hostname": "OLD-SW", "management_ip": "10.200.0.2", "category": "Access Switch", "site_id": old_site["id"], "status": "ONLINE"})
+        assert len(inv.list_devices()) == 2
+
+        local_ctx = {
+            "local_ip": "192.168.50.25",
+            "local_mac": "AA:BB:CC:DD:EE:01",
+            "local_hostname": "TECH-LAPTOP",
+            "gateway_ip": "192.168.50.1",
+            "netmask": "255.255.255.0",
+            "subnet_cidr": "192.168.50.0/24",
+            "scan_cidr": "192.168.50.0/24",
+        }
+        arp_entries = [
+            {"ip": "192.168.50.1", "mac": "14:CC:20:11:22:33", "vendor": "TP-Link", "entry_type": "dynamic"},
+            {"ip": "192.168.50.10", "mac": "F0:9F:C2:AA:BB:CC", "vendor": "Ubiquiti", "entry_type": "dynamic"},
+            {"ip": "192.168.50.99", "mac": "DE:AD:BE:EF:00:99", "vendor": "Unknown", "entry_type": "dynamic"},
+            {"ip": "10.200.0.2", "mac": "00:11:21:77:88:99", "vendor": "Cisco", "entry_type": "dynamic"},
+        ]
+
+        def _probe(ip):
+            if ip == "192.168.50.1":
+                return "ONLINE", 1.2
+            if ip == "192.168.50.10":
+                return "ONLINE", 2.8
+            if ip == "192.168.50.25":
+                return "ONLINE", 0.0
+            return "DOWN", None
+
+        engine = TopologyDiscoveryEngine(db)
+        payload = asyncio.run(
+            engine.discover_live_local_network(
+                active_sweep=True,
+                include_snmp=False,
+                local_context=local_ctx,
+                arp_entries=arp_entries,
+                icmp_probe_fn=_probe,
+                resolve_hostnames=False,
+            )
+        )
+
+        assert payload["mode"] == "LIVE"
+        assert payload["gateway_ip"] == "192.168.50.1"
+        live_ips = {n["management_ip"] for n in payload["nodes"]}
+        assert live_ips == {"192.168.50.1", "192.168.50.10", "192.168.50.25"}
+        # Historical old-site devices & offline ARP hosts must NEVER pollute the live discovery
+        assert "10.200.0.1" not in live_ips
+        assert "10.200.0.2" not in live_ips
+        assert "192.168.50.99" not in live_ips
+        # Live discovery must be non-destructive against SQLite inventory
+        assert len(inv.list_devices()) == 2
+
+        by_ip = {n["management_ip"]: n for n in payload["nodes"]}
+        gw = by_ip["192.168.50.1"]
+        pc = by_ip["192.168.50.25"]
+        peer = by_ip["192.168.50.10"]
+
+        assert gw["is_gateway"] is True
+        assert gw["tree_depth"] == 0
+        assert gw["upstream_hostname"] == "Internet / WAN"
+        assert gw["downstream_count"] == 2
+        assert pc["is_local_host"] is True
+        assert pc["upstream_device_id"] == gw["id"]
+        assert peer["upstream_device_id"] == gw["id"]
+        assert peer["already_in_inventory"] is False
+        assert peer["site_id"] is None
+        assert all(e["source_device_id"] == gw["id"] and e["flow_direction"] == "DOWNSTREAM" for e in payload["edges"])
+
+    def test_10_hierarchy_orientation_and_add_to_site_workflow(self, tmp_path, qapp):
+        # 1. Verify orient_topology_hierarchy reverses inverted bottom-up links cleanly
+        nodes = [
+            {"id": 1, "hostname": "GW-01", "management_ip": "192.168.50.1", "category": "Router", "role": "Default Gateway", "status": "ONLINE"},
+            {"id": 2, "hostname": "CORE-SW", "management_ip": "192.168.50.2", "category": "Core Switch", "role": "", "status": "ONLINE"},
+            {"id": 3, "hostname": "ACC-SW", "management_ip": "192.168.50.3", "category": "Access Switch", "role": "", "status": "ONLINE"},
+            {"id": 4, "hostname": "AP-01", "management_ip": "192.168.50.4", "category": "Wireless Access Point", "role": "", "status": "ONLINE"},
+        ]
+        inverted_edges = [
+            {"id": 10, "source_device_id": 4, "dest_device_id": 3, "source_interface": "eth0", "dest_interface": "Gi1/0/8", "link_type": "AP_UPLINK", "discovery_method": "LLDP", "confidence": "HIGH", "status": "UP"},
+            {"id": 11, "source_device_id": 3, "dest_device_id": 2, "source_interface": "Gi1/0/24", "dest_interface": "Te1/0/1", "link_type": "UPLINK", "discovery_method": "LLDP", "confidence": "HIGH", "status": "UP"},
+            {"id": 12, "source_device_id": 2, "dest_device_id": 1, "source_interface": "Te1/0/2", "dest_interface": "LAN1", "link_type": "UPLINK", "discovery_method": "CDP", "confidence": "HIGH", "status": "UP"},
+        ]
+        n_out, e_out = orient_topology_hierarchy(nodes, inverted_edges, gateway_ips={"192.168.50.1"})
+        pairs = {(e["source_device_id"], e["dest_device_id"]): (e["source_interface"], e["dest_interface"]) for e in e_out}
+        assert pairs[(1, 2)] == ("LAN1", "Te1/0/2")
+        assert pairs[(2, 3)] == ("Te1/0/1", "Gi1/0/24")
+        assert pairs[(3, 4)] == ("Gi1/0/8", "eth0")
+
+        by_id = {n["id"]: n for n in n_out}
+        assert by_id[1]["tree_depth"] == 0 and by_id[4]["tree_depth"] == 3
+        assert by_id[4]["upstream_hostname"] == "ACC-SW"
+        assert by_id[2]["downstream_names"] == ["ACC-SW"]
+
+        # 2. Verify live payload inside TopologyView, Inspector hierarchy & Add-to-Site persistence
+        db = DatabaseManager(str(tmp_path / "topo_live_ui.db"))
+        local_ctx = {
+            "local_ip": "192.168.50.25",
+            "local_mac": "AA:BB:CC:DD:EE:01",
+            "local_hostname": "ADMIN-PC",
+            "gateway_ip": "192.168.50.1",
+            "netmask": "255.255.255.0",
+            "subnet_cidr": "192.168.50.0/24",
+            "scan_cidr": "192.168.50.0/24",
+        }
+        engine = TopologyDiscoveryEngine(db)
+        payload = asyncio.run(
+            engine.discover_live_local_network(
+                active_sweep=False,
+                include_snmp=False,
+                local_context=local_ctx,
+                arp_entries=[
+                    {"ip": "192.168.50.1", "mac": "14:CC:20:11:22:33", "vendor": "TP-Link", "entry_type": "dynamic"},
+                    {"ip": "192.168.50.10", "mac": "F0:9F:C2:AA:BB:CC", "vendor": "Ubiquiti", "entry_type": "dynamic"},
+                ],
+                icmp_probe_fn=lambda ip: ("ONLINE", 1.5),
+                resolve_hostnames=False,
+            )
+        )
+
+        view = TopologyView(db=db)
+        try:
+            view._on_live_discovery_finished(payload)
+            assert view.live_banner.isVisibleTo(view)
+            assert len(view.canvas.node_items) == 3
+            assert len(view.canvas.edge_items) == 2
+
+            gw_node = next(n for n in view._current_graph["nodes"] if n["is_gateway"])
+            other_node = next(n for n in view._current_graph["nodes"] if n["management_ip"] == "192.168.50.10")
+            view.canvas.select_device(gw_node["id"])
+            assert "WAN" in view.lbl_upstream.text()
+            assert view.lbl_downstream.text().startswith("2 :")
+            assert view.btn_add_to_site.isEnabled()
+
+            # Smoke-render custom Omada/UniFi vector cards + Bezier arrows
+            pix = view.canvas.grab()
+            assert not pix.isNull() and pix.width() > 0
+
+            res = view.assign_devices_to_site(
+                devices=[gw_node, other_node],
+                new_site_data={
+                    "name": "Nouveau Site Client",
+                    "default_gateway": "192.168.50.1",
+                    "network_ranges": ["192.168.50.0/24"],
+                },
+                save_links=True,
+            )
+            assert res["assigned_count"] == 2
+            assert res["links_saved"] >= 1
+            assert res["site_name"] == "Nouveau Site Client"
+
+            sm = SiteManager(db)
+            created_site = sm.get_site_by_name("Nouveau Site Client")
+            assert created_site is not None
+            assert created_site["default_gateway"] == "192.168.50.1"
+
+            inv = InventoryManager(db, site_manager=sm)
+            site_devs = inv.list_devices(site_id=created_site["id"])
+            assert len(site_devs) == 2
+            with db.Session() as session:
+                assert session.query(NetworkLink).count() >= 1
+
+            # Verify live view nodes updated immediately with saved site
+            updated_gw = next(n for n in view._current_graph["nodes"] if n["management_ip"] == "192.168.50.1")
+            assert updated_gw["site_name"] == "Nouveau Site Client"
+            assert updated_gw["already_in_inventory"] is True
         finally:
             view.shutdown()
 

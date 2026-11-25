@@ -1,7 +1,10 @@
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                             QPushButton, QLineEdit, QProgressBar, QTableWidget, 
-                             QTableWidgetItem, QHeaderView, QRadioButton, QButtonGroup)
+from PySide6.QtWidgets import (
+    QAbstractItemView, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QPushButton, QLineEdit, QProgressBar, QTableWidget, QMessageBox,
+    QTableWidgetItem, QHeaderView, QRadioButton, QButtonGroup
+)
 from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QColor, QFont, QIntValidator
 from core.scanner import Scanner
 from utils.i18n import _
 
@@ -61,7 +64,8 @@ class ScannerView(QWidget):
         self.network_prefix_ready.connect(self.on_network_prefix_ready)
         
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(30, 30, 30, 30)
+        self.layout.setContentsMargins(24, 22, 24, 22)
+        self.layout.setSpacing(12)
         
         # Header
         header = QLabel(_("scan_title"))
@@ -70,24 +74,24 @@ class ScannerView(QWidget):
         
         # Mode Selection
         mode_layout = QHBoxLayout()
-        mode_layout.setSpacing(24)
+        mode_layout.setSpacing(20)
         self.mode_group = QButtonGroup(self)
         
         self.lan_radio = QRadioButton(_("scan_mode_lan_label"))
         self.lan_radio.setChecked(True)
-        self.lan_radio.setMinimumWidth(120)
+        self.lan_radio.setCursor(Qt.PointingHandCursor)
         
         self.port_radio = QRadioButton(_("scan_mode_port_label"))
-        self.port_radio.setMinimumWidth(120)
+        self.port_radio.setCursor(Qt.PointingHandCursor)
         
         self.trace_radio = QRadioButton(_("scan_mode_tracert_label"))
-        self.trace_radio.setMinimumWidth(120)
+        self.trace_radio.setCursor(Qt.PointingHandCursor)
 
         self.wifi_radio = QRadioButton(_("scan_mode_wifi_label"))
-        self.wifi_radio.setMinimumWidth(130)
+        self.wifi_radio.setCursor(Qt.PointingHandCursor)
 
         self.diag_radio = QRadioButton(_("scan_mode_diag_label"))
-        self.diag_radio.setMinimumWidth(140)
+        self.diag_radio.setCursor(Qt.PointingHandCursor)
         
         self.mode_group.addButton(self.lan_radio)
         self.mode_group.addButton(self.port_radio)
@@ -110,37 +114,53 @@ class ScannerView(QWidget):
         self.wifi_radio.toggled.connect(self.on_mode_changed)
         self.diag_radio.toggled.connect(self.on_mode_changed)
         
-        # Controls
+        # Controls (kept above port_settings so target bar never jumps vertically)
         controls = QHBoxLayout()
+        controls.setSpacing(10)
         self.target_input = QLineEdit()
         self.target_input.setPlaceholderText(_("scan_placeholder_lan"))
         self.target_input.returnPressed.connect(self.start_scan)
         
         self.scan_btn = QPushButton(_("scan_btn_start"))
         self.scan_btn.setObjectName("PrimaryButton")
+        self.scan_btn.setCursor(Qt.PointingHandCursor)
         self.scan_btn.clicked.connect(self.start_scan)
+
+        self.cancel_btn = QPushButton(_("scan_btn_cancel", "Cancel"))
+        self.cancel_btn.setObjectName("DangerButton")
+        self.cancel_btn.setCursor(Qt.PointingHandCursor)
+        self.cancel_btn.setVisible(False)
+        self.cancel_btn.clicked.connect(self.cancel_scan)
         
-        controls.addWidget(self.target_input)
+        controls.addWidget(self.target_input, 1)
         controls.addWidget(self.scan_btn)
-        # Port Scan Settings (Hidden by default)
+        controls.addWidget(self.cancel_btn)
+        self.layout.addLayout(controls)
+
+        # Port Scan Settings (Hidden by default, positioned cleanly below controls)
         self.port_settings = QWidget()
         port_settings_layout = QHBoxLayout(self.port_settings)
-        port_settings_layout.setContentsMargins(0, 10, 0, 10)
+        port_settings_layout.setContentsMargins(0, 4, 0, 4)
+        port_settings_layout.setSpacing(10)
         
         self.port_settings.setVisible(False)
         
         self.port_mode_common = QRadioButton(_("scan_port_common"))
         self.port_mode_common.setChecked(True)
+        self.port_mode_common.setCursor(Qt.PointingHandCursor)
         self.port_mode_custom = QRadioButton(_("scan_port_custom"))
+        self.port_mode_custom.setCursor(Qt.PointingHandCursor)
         
         self.start_port = QLineEdit("1")
+        self.start_port.setValidator(QIntValidator(1, 65535, self))
         self.start_port.setPlaceholderText(_("scan_port_start"))
-        self.start_port.setFixedWidth(80)
+        self.start_port.setFixedWidth(84)
         self.start_port.setEnabled(False)
         
         self.end_port = QLineEdit("1024")
+        self.end_port.setValidator(QIntValidator(1, 65535, self))
         self.end_port.setPlaceholderText(_("scan_port_end"))
-        self.end_port.setFixedWidth(80)
+        self.end_port.setFixedWidth(84)
         self.end_port.setEnabled(False)
         
         self.port_mode_custom.toggled.connect(self.start_port.setEnabled)
@@ -156,14 +176,11 @@ class ScannerView(QWidget):
         port_settings_layout.addStretch()
         
         self.layout.addWidget(self.port_settings)
-
-        # Connect mode change to show/hide port settings
         self.port_radio.toggled.connect(self.port_settings.setVisible)
-        
-        self.layout.addLayout(controls)
         
         # Progress
         self.progress_bar = QProgressBar()
+        self.progress_bar.setFixedHeight(22)
         self.progress_bar.setValue(0)
         self.layout.addWidget(self.progress_bar)
         
@@ -171,10 +188,13 @@ class ScannerView(QWidget):
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels([_("scan_table_target"), _("scan_table_info"), _("scan_table_status"), _("scan_table_mac")])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.table.verticalHeader().setDefaultSectionSize(45)
+        self.table.verticalHeader().setDefaultSectionSize(38)
         self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setAlternatingRowColors(True)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.layout.addWidget(self.table)
+        self.layout.addWidget(self.table, 1)
         
         # Auto-fill local network prefix (only for LAN mode)
         self._network_cidr = ""
@@ -194,25 +214,40 @@ class ScannerView(QWidget):
         return "diag"
 
     def _configure_table_for_mode(self, mode: str):
+        hdr = self.table.horizontalHeader()
         if mode == "lan":
             self.table.setColumnCount(4)
             self.table.setHorizontalHeaderLabels([_("scan_table_ip"), _("scan_table_hostname"), _("scan_table_status"), _("scan_table_mac")])
+            hdr.setSectionResizeMode(QHeaderView.Stretch)
+            hdr.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         elif mode == "port":
-            self.table.setColumnCount(4)
-            self.table.setHorizontalHeaderLabels([_("scan_table_target"), _("scan_table_port"), _("scan_table_status"), _("scan_table_extra")])
+            self.table.setColumnCount(3)
+            self.table.setHorizontalHeaderLabels([_("scan_table_target"), _("scan_table_port"), _("scan_table_status")])
+            hdr.setSectionResizeMode(QHeaderView.Stretch)
+            hdr.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+            hdr.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         elif mode == "traceroute":
             self.table.setColumnCount(6)
             self.table.setHorizontalHeaderLabels([_("scan_table_hop"), _("scan_table_ip"), _("scan_table_rtt1"), _("scan_table_rtt2"), _("scan_table_rtt3"), _("scan_table_status")])
+            hdr.setSectionResizeMode(QHeaderView.Stretch)
+            hdr.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+            hdr.setSectionResizeMode(5, QHeaderView.ResizeToContents)
         elif mode == "wifi":
             self.table.setColumnCount(5)
             self.table.setHorizontalHeaderLabels([_("scan_table_ssid"), _("scan_table_bssid"), _("scan_table_signal"), _("scan_table_channel"), _("scan_table_security")])
+            hdr.setSectionResizeMode(QHeaderView.Stretch)
+            hdr.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         elif mode == "diag":
             self.table.setColumnCount(4)
             self.table.setHorizontalHeaderLabels([_("scan_table_step"), _("scan_table_detail"), _("scan_table_status"), _("scan_table_latency")])
+            hdr.setSectionResizeMode(QHeaderView.ResizeToContents)
+            hdr.setSectionResizeMode(1, QHeaderView.Stretch)
 
     def on_mode_changed(self, checked):
         """Update input field placeholder and content when mode changes."""
         if not checked:
+            return
+        if self.worker and self.worker.isRunning():
             return
         mode = self._get_selected_mode()
         if mode == "lan":
@@ -232,11 +267,10 @@ class ScannerView(QWidget):
             self.target_input.clear()
             self.target_input.setPlaceholderText(_("scan_placeholder_diag"))
 
-        if not self.worker or not self.worker.isRunning():
-            self.active_scan_mode = mode
-            self.table.setRowCount(0)
-            self.progress_bar.setValue(0)
-            self._configure_table_for_mode(mode)
+        self.active_scan_mode = mode
+        self.table.setRowCount(0)
+        self.progress_bar.setValue(0)
+        self._configure_table_for_mode(mode)
 
     def auto_fill_prefix(self):
         self.info_worker = LocalInfoWorker()
@@ -249,21 +283,38 @@ class ScannerView(QWidget):
         if self.lan_radio.isChecked():
             self.target_input.setText(prefix)
 
+    def cancel_scan(self):
+        if self.worker and self.worker.isRunning():
+            self.cancel_btn.setEnabled(False)
+            self.worker.stop()
+        self.on_finished()
+
     def start_scan(self):
+        if self.worker and self.worker.isRunning():
+            return
         mode = self._get_selected_mode()
         target = self.target_input.text().strip()
         if mode in ("lan", "port", "traceroute") and not target:
+            QMessageBox.warning(self, _("scan_error_invalid_title"), _("scan_error_invalid_msg"))
             return
             
-        # Basic validation: ensure it's not just a prefix for single-target scans
         if mode in ("port", "traceroute"):
-            # Block incomplete IP prefixes like "192.168.1" but allow domains like "google.com"
             is_ip_like = all(c.isdigit() or c == '.' for c in target)
             if is_ip_like and target.count(".") < 3:
-                from PySide6.QtWidgets import QMessageBox
-                QMessageBox.warning(self, _("scan_error_invalid_title"), 
-                                  _("scan_error_invalid_msg"))
+                QMessageBox.warning(self, _("scan_error_invalid_title"), _("scan_error_invalid_msg"))
                 return
+
+        if mode == "port":
+            fast_mode = self.port_mode_common.isChecked()
+            try:
+                start = max(1, min(65535, int(self.start_port.text() or "1")))
+                end = max(1, min(65535, int(self.end_port.text() or "1024")))
+            except ValueError:
+                start, end = 1, 1024
+            if start > end:
+                start, end = end, start
+            self.start_port.setText(str(start))
+            self.end_port.setText(str(end))
 
         self.active_scan_mode = mode
         self.table.setRowCount(0)
@@ -271,9 +322,10 @@ class ScannerView(QWidget):
         self.progress_bar.setValue(0)
         self.scan_btn.setEnabled(False)
         self.scan_btn.setText(_("scan_scanning"))
+        self.cancel_btn.setEnabled(True)
+        self.cancel_btn.setVisible(True)
         
         if mode == "lan":
-            # If target is a prefix (e.g. 192.168.1), convert to CIDR for scapy
             if target.count(".") == 2:
                 scan_target = f"{target}.0/24"
             elif "/" not in target and target.count(".") == 3:
@@ -282,13 +334,6 @@ class ScannerView(QWidget):
                 scan_target = target
             self.worker = ScannerWorker("lan", scan_target)
         elif mode == "port":
-            fast_mode = self.port_mode_common.isChecked()
-            try:
-                start = int(self.start_port.text())
-                end = int(self.end_port.text())
-            except:
-                start, end = 1, 1024
-            
             self.worker = ScannerWorker("port", target, (start, end), fast_mode)
         elif mode == "traceroute":
             self.worker = ScannerWorker("traceroute", target)
@@ -300,8 +345,14 @@ class ScannerView(QWidget):
         self.worker.progress_signal.connect(self.update_progress)
         self.worker.result_signal.connect(self.on_result)
         self.worker.finished_signal.connect(self.on_finished)
-        self.worker.finished.connect(self.worker.deleteLater)
-        self.worker.start()
+        w = self.worker
+        w.finished.connect(lambda: self._on_worker_cleanup(w))
+        w.start()
+
+    def _on_worker_cleanup(self, w):
+        if self.worker is w:
+            self.worker = None
+        w.deleteLater()
 
     def update_progress(self, val):
         self.progress_bar.setValue(val)
@@ -309,15 +360,13 @@ class ScannerView(QWidget):
     def on_result(self, data):
         row = self.table.rowCount()
         self.table.insertRow(row)
-        
-        from PySide6.QtGui import QColor, QFont
         mode = self.active_scan_mode
         
         if mode == "lan":
             items = [data.get("ip", ""), data.get("hostname", ""), data.get("status", ""), data.get("mac", "N/A")]
             status_idx = 2
         elif mode == "port":
-            items = [data.get("target", ""), str(data.get("port", "")), data.get("status", ""), ""]
+            items = [data.get("target", ""), str(data.get("port", "")), data.get("status", "")]
             status_idx = 2
         elif mode == "traceroute":
             items = [str(data.get("hop", "")), data.get("ip", ""), data.get("p1", ""), data.get("p2", ""), data.get("p3", ""), data.get("status", "")]
@@ -333,7 +382,10 @@ class ScannerView(QWidget):
 
         for col, text in enumerate(items):
             item = QTableWidgetItem(text)
-            item.setTextAlignment(Qt.AlignCenter)
+            if mode == "diag" and col == 1:
+                item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+            else:
+                item.setTextAlignment(Qt.AlignCenter)
             item.setFlags(item.flags() & ~Qt.ItemIsEditable)
             
             if is_verdict_row:
@@ -345,21 +397,21 @@ class ScannerView(QWidget):
                 if mode == "wifi":
                     st = str(data.get("status", "")).upper()
                     if st == "UP":
-                        item.setForeground(QColor("#10B981"))  # Green (>= 70%)
+                        item.setForeground(QColor("#10B981"))
                     elif st == "WARN":
-                        item.setForeground(QColor("#F59E0B"))  # Orange (40-69%)
+                        item.setForeground(QColor("#F59E0B"))
                     else:
-                        item.setForeground(QColor("#F43F5E"))  # Red (< 40%)
+                        item.setForeground(QColor("#F43F5E"))
                 else:
                     status_text = text.upper()
-                    if any(kw in status_text for kw in ["UP", "OPEN", "SUCCESS", "OK"]):
-                        item.setForeground(QColor("#10B981"))  # Green
+                    if any(kw in status_text for kw in ["UP", "OPEN", "SUCCESS", "OK", "OUVERT", "ACTIF", "SUCCÈS"]):
+                        item.setForeground(QColor("#10B981"))
                         item.setToolTip(_("scan_tooltip_active"))
-                    elif any(kw in status_text for kw in ["UNREACHABLE", "ERROR", "WARN"]):
-                        item.setForeground(QColor("#F59E0B"))  # Orange
+                    elif any(kw in status_text for kw in ["UNREACHABLE", "ERROR", "WARN", "ERREUR", "INJOIGNABLE"]):
+                        item.setForeground(QColor("#F59E0B"))
                         item.setToolTip(_("scan_tooltip_unreachable"))
-                    elif any(kw in status_text for kw in ["DOWN", "CLOSED", "TIMEOUT", "FAILED", "FAIL"]):
-                        item.setForeground(QColor("#F43F5E"))  # Red
+                    elif any(kw in status_text for kw in ["DOWN", "CLOSED", "TIMEOUT", "FAILED", "FAIL", "FERMÉ", "ÉCHEC"]):
+                        item.setForeground(QColor("#F43F5E"))
                         item.setToolTip(_("scan_tooltip_inactive"))
             
             self.table.setItem(row, col, item)
@@ -367,4 +419,11 @@ class ScannerView(QWidget):
     def on_finished(self):
         self.scan_btn.setEnabled(True)
         self.scan_btn.setText(_("scan_btn_start"))
+        self.cancel_btn.setVisible(False)
         self.progress_bar.setValue(100)
+
+    def shutdown(self):
+        if self.worker and self.worker.isRunning():
+            self.worker.stop()
+        if self.info_worker and self.info_worker.isRunning():
+            self.info_worker.wait(1000)

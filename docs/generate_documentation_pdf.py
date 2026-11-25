@@ -901,7 +901,7 @@ def build_chapter_1(meta: Dict[str, object], styles: Dict[str, ParagraphStyle]) 
     story.append(subsection("1.1", "Pile Technologique Verifiee (requirements.txt)", styles))
     stack_rows = [
         ["Runtime & Concurrence", "Python 3.14 (64-bit), asyncio, QThread", "Execution parallele non bloquante des sondes ICMP/SNMP/Syslog"],
-        ["Interface Graphique", "PySide6, PySide6-WebEngine, pyqtgraph", "14 ecrans Qt 6, courbes haute frequence, navigateur Chromium integre"],
+        ["Interface Graphique", "PySide6, PySide6-WebEngine, pyqtgraph", "19 ecrans Qt 6 (Quantum Midnight v2), icones SVG natives, courbes haute frequence, navigateur Chromium integre"],
         ["Supervision SNMP", "pysnmp (v7), pysnmpcrypto, pyasn1", "Protocole SNMP v1, v2c et v3 complet (auth SHA-512, chiffrement AES-256)"],
         ["Moteurs Reseau & OS", "icmplib, scapy (Npcap), psutil, netsh", "Sondes ICMP asynchrones, decouverte ARP, metriques interface et Wi-Fi"],
         ["Administration Distante", "paramiko, pyserial, socket", "Terminaux interactifs SSH, Telnet et consoles Serie COM"],
@@ -920,7 +920,7 @@ def build_chapter_1(meta: Dict[str, object], styles: Dict[str, ParagraphStyle]) 
     story.append(bullet(f"<b>Point d'entree ({code_tag('src/main.py')})</b> : configure l'identifiant barre des taches Windows ({code_tag('AppUserModelID')}), masque automatiquement les fenetres console des sous-processus Windows ({code_tag('CREATE_NO_WINDOW')}) et applique les options TLS WebEngine selon la configuration.", styles))
     story.append(bullet(f"<b>Verrou d'instance unique</b> : un serveur local Qt ({code_tag('QLocalServer')}) empeche le lancement de doublons et ramene la fenetre existante au premier plan si l'utilisateur relance l'executable.", styles))
     story.append(bullet("<b>En-tete global temps reel</b> : affiche en permanence le statut reseau actif (Wi-Fi + SSID + signal % ou Ethernet), le nom d'hote, l'IP locale et l'IP publique rafraichies toutes les 10 secondes dans un thread dedie.", styles))
-    story.append(bullet(f"<b>Chargement optimise & arret controle</b> : le Dashboard (index 0) s'ouvre immediatement, puis les vues 1 a 13 sont prechargees en arriere-plan (file {code_tag('QTimer')}). A la fermeture ({code_tag('shutdown()')}), tous les moteurs (Ping, SNMP, Syslog, travailleurs reseau) sont arretes proprement et leurs tampons SQLite vides.", styles))
+    story.append(bullet(f"<b>Chargement optimise &amp; arret controle</b> : la fenetre sans bordure est librement redimensionnable (poignees, agrandissement/restauration, double-clic en-tete) et charge le Dashboard (index 0) immediatement, puis precharge les vues 1 a 18 en arriere-plan (file {code_tag('QTimer')}). A la fermeture ({code_tag('shutdown()')}), tous les moteurs (Ping, SNMP, Syslog, Scanners, Access, Topologie, Sauvegardes) sont arretes proprement et leurs tampons SQLite vides.", styles))
 
     story.append(subsection("1.4", "Structure Reelle du Projet", styles))
     story.append(
@@ -1196,8 +1196,9 @@ def build_chapter_5(styles: Dict[str, ParagraphStyle]) -> List[Flowable]:
     story.append(bullet("<b>Dashboard & Comparaison</b> : KPI de disponibilite, latence moyenne, incidents ouverts, Ping Batch non bloquant, ouverture directe en Topologie/Acces et exports CSV / PDF Corporate.", styles))
 
     story.append(subsection("5.4", "Topologie Reseau Automatique (TopologyView — Index 14)", styles))
-    story.append(bullet(f"<b>Moteur multi-sources ({code_tag('topology_discovery.py')})</b> : correlation LLDP (IEEE 802.1AB), CDP, tables MAC BRIDGE/Q-BRIDGE (inference prudente de switch non manage si >= 2 MACs sur port non-LLDP), routage IP, ARP local et verification live des statuts (sonde ICMP + repli TCP non intrusif, synchro hotes/SNMP et resolution DNS optionnelle). Identification constructeur par OUI sans jamais deviner la categorie depuis le seul OUI.", styles))
-    story.append(bullet(f"<b>Carte interactive QGraphicsView ({code_tag('topology_graph.py')})</b> : 4 modes (PHYSICAL, LOGICAL, VLAN, SITE), 5 couleurs d'etat (vert ONLINE, ambre DEGRADED, rouge DOWN, gris UNKNOWN, bleu selectionne), bouton Verifier Statuts a la demande, glisser-deposer avec liens dynamiques, disposition auto 200+ noeuds, sauvegarde/restauration et export PNG.", styles))
+    story.append(bullet(f"<b>Decouverte en direct du reseau actuel ({code_tag('discover_live_local_network')})</b> : un clic sur <i>Decouvrir Topologie</i> analyse uniquement les equipements presents a l'instant meme (balayage sous-reseau actif, table ARP locale, passerelle par defaut, station locale et SNMP joignables LLDP/CDP/FDB/Routage) sans melanger les anciens sites ni polluer la base SQLite. Un bandeau dedie et le bouton <b>+ Ajouter au Site...</b> (carte ou lot complet via {code_tag('AssignToSiteDialog')}) permettent d'enregistrer un ou plusieurs equipements vers un site existant ou cree a la volee.", styles))
+    story.append(bullet(f"<b>Moteur multi-sources &amp; Hierarchie directionnelle ({code_tag('topology_discovery.py')})</b> : correlation LLDP (IEEE 802.1AB), CDP, BRIDGE/Q-BRIDGE FDB (inference switch non manage si >= 2 MACs sur port non-LLDP), routage IP, ARP local, identification constructeur OUI seul (jamais de devinette de type depuis la MAC) et orientation automatique des liens <b>Uplink -> Downstream</b> (Passerelle Internet/WAN -> Switches -> Bornes/Terminaux).", styles))
+    story.append(bullet(f"<b>Cartes Pro Omada/UniFi &amp; Fleches directionnelles ({code_tag('topology_graph.py')})</b> : grille de points, cartes materielles avec icones vectorielles dediees, pastille latence/etat, badge PASSERELLE/CE PC/NOUVEAU, courbes de Bezier flechees avec info-bulles et inspecteur detaillant <i>Alimente par (Uplink)</i> et <i>Alimente (Downstream)</i>, 4 modes (PHYSICAL, LOGICAL, VLAN, SITE), disposition auto hierarchique 200+ noeuds et export PNG.", styles))
 
     story.append(subsection("5.5", "Inventaire Avance des Equipements (InventoryView — Index 15)", styles))
     story.append(bullet(f"<b>Parc sur 11 categories ({code_tag('inventory_manager.py')})</b> : pare-feux, routeurs, switches Core/Distribution/Access, controleurs Wi-Fi, bornes, serveurs, onduleurs, imprimantes et autres equipements avec champs personnalises, tags et baies.", styles))
@@ -1373,11 +1374,12 @@ def build_chapter_8(meta: Dict[str, object], styles: Dict[str, ParagraphStyle]) 
         [code_tag("test_network_intelligence.py"), "Correlations physiques/overload/PoE/reboot/erreurs/securite, z-score/flatline, benchmark 100 SNMP + 1 000 Syslog"],
         [code_tag("test_network_intelligence_ui.py"), f"Dashboard 10 KPI/8 graphiques, SNMPView, Fiche 10 onglets dynamiques, SyslogView, IntelligenceView, {meta['fr_keys']}/{meta['en_keys']} i18n, build"],
         [code_tag("test_v360_inventory_sites.py"), "Inventaire 11 cat., doublons IP/MAC, CSV/PDF, multi-sites & comparaison, DPAPI, SHA-256, triggers immuabilite audit"],
-        [code_tag("test_v360_topology.py"), "ARP, classification sans OUI->type, LLDP/CDP/FDB/Routage, switch non manage, TopologyView 4 modes & 210 noeuds"],
+        [code_tag("test_v360_topology.py"), "ARP, classification sans OUI->type, LLDP/CDP/FDB/Routage, decouverte live isolee, hierarchie directionnelle, ajout site & 210 noeuds"],
         [code_tag("test_v360_vlan_backup_templates.py"), "VLAN SNMP/CLI Cisco/Ruckus/FortiGate, incoherences, backups DPAPI+tamper SHA-256, Diff visuel, Restore & Modeles"],
         [code_tag("test_v360_access_audit_security.py"), "Tiers CLI READ_ONLY/MODIFYING/DESTRUCTIVE, blocage non confirme, known_hosts strict (zero AutoAddPolicy), UI Access/Sites/Audit"],
         [code_tag("test_v360_ui_benchmarks.py"), "Benchmarks echelle (1 000 equipements, 250 noeuds, 25 sites, 50 backups DPAPI), parite 1:1 FR/EN & wiring 19 ecrans"],
         [code_tag("test_updater_dialog.py"), "Rendu Markdown->HTML et fenetre OTA UpdateAvailableDialog a dimensions bornees et defilement vertical"],
+        [code_tag("test_ui_design_audit.py"), "Audit UI/UX automatise (Quantum Midnight v2) : QSS strict, icones SVG, absence secret en clair, parite i18n, zero debordement/troncature sur 18 vues"],
         [code_tag("test_documentation_pdf.py"), "Verification automatique de generation PDF, validite structurelle, pagination, contenu v3.6.0 et version active"],
     ]
     story.append(styled_table(["Fichier de test", "Perimetre verifie"], test_rows, [165, CONTENT_WIDTH - 165], styles))
@@ -1435,14 +1437,23 @@ def build_chapter_9(meta: Dict[str, object], styles: Dict[str, ParagraphStyle]) 
     story.append(subsection("9.2", "Journal des Versions (Changelog Officiel)", styles))
     changelog_rows = [
         [
-            "<b>v3.6.0</b>",
+            "<b>v3.6.1</b>",
             "Actuelle",
+            "<b>Topologie Reseau Live Pro (Omada/UniFi) &amp; Refonte UI Quantum Midnight v2 :</b><br/>"
+            "• <b>Topologie Live isolee</b> : decouverte du reseau actuel uniquement (balayage actif + ARP filtre + passerelle + SNMP joignables) via bandeau Live dedie, sans melanger les anciens sites ni ecrire sans confirmation.<br/>"
+            "• <b>Ajout au Site en 1 clic</b> : bouton + Ajouter au Site... par carte, clic droit et lot complet (+ Tout Ajouter au Site...) avec creation de site a la volee (passerelle &amp; CIDR auto-detectes).<br/>"
+            "• <b>Cartes Omada/UniFi &amp; Hierarchie directionnelle</b> : cartes vectorielles avec couronne INTERNET/WAN, pastille latence, courbes de Bezier flechees Uplink -> Downstream et inspecteur <i>Alimente par / Alimente</i>.<br/>"
+            f"• <b>Audit UI/UX complet 19 ecrans ({code_tag('test_ui_design_audit.py')})</b> : icones SVG dediees ({code_tag('assets/icons/')}), cadres isoles ({code_tag('#PanelCard/#FilterBar/#KpiCard')}), barres 2 lignes sans troncature, fenetre redimensionnable, suppression secret SMTP en clair et correctifs QThread.",
+        ],
+        [
+            "<b>v3.6.0</b>",
+            "Precedente",
             "<b>Roadmap 03 — Infrastructure Management Platform :</b><br/>"
-            "• <b>Topologie Reseau</b> : decouverte multi-sources (LLDP, CDP, Bridge MIB FDB, Routage, ARP), sondes ICMP/TCP live & bouton Verifier Statuts (elimine les faux etats UNKNOWN), OUI constructeur seul, carte QGraphicsView 4 modes & disposition persistante.<br/>"
-            "• <b>Inventaire Avance (11 categories)</b> : synchro SNMP/Hotes/Sites, cycle de vie & garanties, doublons IP/MAC, CSV & PDF Corporate.<br/>"
+            "• <b>Topologie Reseau</b> : decouverte multi-sources (LLDP, CDP, Bridge MIB FDB, Routage, ARP), sondes ICMP/TCP live &amp; Verifier Statuts, OUI constructeur seul, carte QGraphicsView 4 modes.<br/>"
+            "• <b>Inventaire Avance (11 categories)</b> : synchro SNMP/Hotes/Sites, cycle de vie &amp; garanties, doublons IP/MAC, CSV &amp; PDF Corporate.<br/>"
             "• <b>Gestion des VLANs</b> : parseurs Cisco/Ruckus/FortiGate, matrice multi-switchs, incoherences et planificateur CLI confirme.<br/>"
-            "• <b>Sauvegardes DPAPI+SHA-256, Diff Visuel, 8 Modeles & Restauration</b> : stockage chiffre BHITENC1:+CHK, masquage secrets et PRE_RESTORE obligatoire.<br/>"
-            f"• <b>Centre d'Acces (known_hosts strict), Multi-Sites & Audit Immuable</b> : triggers anti-UPDATE/DELETE, <b>19 modules</b>, <b>{meta['table_count']} tables SQLite</b>, <b>{meta['fr_keys']} cles FR/EN</b> et nouvelle fenetre OTA scrollable <b>UpdateAvailableDialog</b> avec rendu Markdown.",
+            "• <b>Sauvegardes DPAPI+SHA-256, Diff Visuel, 8 Modeles &amp; Restauration</b> : stockage chiffre BHITENC1:+CHK, masquage secrets et PRE_RESTORE obligatoire.<br/>"
+            "• <b>Centre d'Acces (known_hosts strict), Multi-Sites &amp; Audit Immuable</b> : triggers anti-UPDATE/DELETE, 19 modules, 28 tables SQLite et fenetre OTA scrollable <b>UpdateAvailableDialog</b>.",
         ],
         [
             "<b>v3.5.0</b>",

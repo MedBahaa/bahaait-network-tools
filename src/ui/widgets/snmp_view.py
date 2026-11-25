@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
@@ -32,7 +33,7 @@ from core.snmp_engine import AsyncSNMPEngine, attach_standard_collectors
 from core.snmp_profiles import SNMP_PROFILES, get_profile
 from ui.widgets.device_details_view import DeviceDetailsDialog
 from utils.db import DatabaseManager
-from utils.i18n import _
+from utils.i18n import _, escape_qt_mnemonic
 from utils.snmp_credentials import SNMPCredentials, encrypt_credentials, scrub_secrets
 
 
@@ -133,14 +134,26 @@ class AddSNMPDeviceDialog(QDialog):
         self._disc_worker: Optional[_DiscoveryWorker] = None
 
         self.setWindowTitle(_("snmp_dlg_add_title", "Add SNMP Device"))
+        screen = QGuiApplication.primaryScreen()
+        avail = screen.availableGeometry() if screen else None
+        max_h = int(avail.height() * 0.85) if avail else 700
         self.setMinimumWidth(560)
+        self.resize(600, min(640, max_h))
+        if avail:
+            self.setMaximumHeight(max_h)
         self.setStyleSheet("QDialog { background-color: #0F172A; color: #F1F5F9; }")
 
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 16, 18, 16)
         root.setSpacing(12)
 
-        form = QFormLayout()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_inner = QWidget()
+        form = QFormLayout(scroll_inner)
+        form.setContentsMargins(2, 2, 8, 2)
         form.setSpacing(10)
 
         self.name_edit = QLineEdit()
@@ -223,7 +236,8 @@ class AddSNMPDeviceDialog(QDialog):
         form.addRow(_("snmp_dlg_retries", "Retries:"), self.retries_spin)
         form.addRow(_("snmp_dlg_location", "Location:"), self.location_edit)
         form.addRow("", self.anomaly_chk)
-        root.addLayout(form)
+        scroll.setWidget(scroll_inner)
+        root.addWidget(scroll, 1)
 
         # Discovery Result Banner (never shows secrets)
         self.disc_banner = QLabel("")
@@ -237,19 +251,22 @@ class AddSNMPDeviceDialog(QDialog):
 
         # Action Buttons
         btns = QHBoxLayout()
-        self.btn_test = QPushButton(_("snmp_dlg_test", "Test & Discover"))
+        self.btn_test = QPushButton(escape_qt_mnemonic(_("snmp_dlg_test", "Test & Discover")))
         self.btn_test.setObjectName("SecondaryButton")
+        self.btn_test.setCursor(Qt.PointingHandCursor)
         self.btn_test.clicked.connect(self._on_test_discover)
         btns.addWidget(self.btn_test)
         btns.addStretch()
 
         self.btn_cancel = QPushButton(_("snmp_dlg_cancel", "Cancel"))
         self.btn_cancel.setObjectName("SecondaryButton")
+        self.btn_cancel.setCursor(Qt.PointingHandCursor)
         self.btn_cancel.clicked.connect(self.reject)
         btns.addWidget(self.btn_cancel)
 
         self.btn_save = QPushButton(_("snmp_dlg_save", "Save Device"))
         self.btn_save.setObjectName("PrimaryButton")
+        self.btn_save.setCursor(Qt.PointingHandCursor)
         self.btn_save.clicked.connect(self._on_save)
         btns.addWidget(self.btn_save)
         root.addLayout(btns)
@@ -319,7 +336,7 @@ class AddSNMPDeviceDialog(QDialog):
 
     def _on_discovery_finished(self, res: SNMPDiscoveryResult) -> None:
         self.btn_test.setEnabled(True)
-        self.btn_test.setText(_("snmp_dlg_test", "Test & Discover"))
+        self.btn_test.setText(escape_qt_mnemonic(_("snmp_dlg_test", "Test & Discover")))
         self._discovery_res = res
         if res.reachable:
             self.disc_banner.setStyleSheet(
@@ -397,9 +414,16 @@ class AddSNMPDeviceDialog(QDialog):
     def get_device_data(self) -> Optional[Dict[str, Any]]:
         return dict(self._device_data) if self._device_data is not None else None
 
-    def closeEvent(self, event) -> None:
+    def _stop_disc_worker(self) -> None:
         if self._disc_worker is not None and self._disc_worker.isRunning():
-            self._disc_worker.wait(2000)
+            self._disc_worker.wait(2500)
+
+    def done(self, r: int) -> None:
+        self._stop_disc_worker()
+        super().done(r)
+
+    def closeEvent(self, event) -> None:
+        self._stop_disc_worker()
         super().closeEvent(event)
 
 
@@ -437,56 +461,46 @@ class SNMPView(QWidget):
         root.setContentsMargins(24, 22, 24, 22)
         root.setSpacing(14)
 
-        # Header + Controls
+        # Header Row (Full Title + Engine Status & Start/Stop Toggle)
         hdr = QHBoxLayout()
         hdr.setSpacing(10)
         title = QLabel(_("snmp_title", "SNMP Infrastructure Monitoring"))
         title.setObjectName("Title")
+        title.setWordWrap(True)
         title.setStyleSheet("font-size: 24px; font-weight: 800; color: #FFFFFF; margin-bottom: 0px;")
-        hdr.addWidget(title)
-        hdr.addStretch()
+        hdr.addWidget(title, 1)
 
         self.engine_badge = QLabel(_("snmp_status_stopped", "POLLING STOPPED"))
         self.engine_badge.setStyleSheet(
-            "background-color: #334155; color: #CBD5E1; border-radius: 8px; padding: 6px 12px; font-weight: bold; font-size: 11px; margin-bottom: 0px;"
+            "background-color: #334155; color: #CBD5E1; border-radius: 8px; padding: 5px 12px; font-weight: 700; font-size: 11px; margin-bottom: 0px;"
         )
         hdr.addWidget(self.engine_badge)
 
         self.btn_toggle_engine = QPushButton(_("snmp_btn_start", "Start Polling"))
         self.btn_toggle_engine.setObjectName("PrimaryButton")
+        self.btn_toggle_engine.setCursor(Qt.PointingHandCursor)
         self.btn_toggle_engine.clicked.connect(self.toggle_engine)
         hdr.addWidget(self.btn_toggle_engine)
-
-        self.btn_poll_all = QPushButton(_("snmp_btn_poll_all", "Poll All Now"))
-        self.btn_poll_all.setObjectName("SecondaryButton")
-        self.btn_poll_all.clicked.connect(self.poll_all_now)
-        hdr.addWidget(self.btn_poll_all)
-
-        self.btn_add = QPushButton(_("snmp_btn_add", "Add SNMP Device"))
-        self.btn_add.setObjectName("PrimaryButton")
-        self.btn_add.clicked.connect(self.open_add_dialog)
-        hdr.addWidget(self.btn_add)
-
-        self.btn_refresh = QPushButton(_("snmp_btn_refresh", "Refresh"))
-        self.btn_refresh.setObjectName("SecondaryButton")
-        self.btn_refresh.clicked.connect(self.refresh_devices)
-        hdr.addWidget(self.btn_refresh)
         root.addLayout(hdr)
+        self._sync_engine_badge()
 
         # KPI Row (6 Cards)
         kpi_row = QHBoxLayout()
-        kpi_row.setSpacing(12)
+        kpi_row.setSpacing(10)
         self.kpi_total = self._make_kpi_card(kpi_row, _("snmp_kpi_total", "Total Devices"), "0", "#FFFFFF")
         self.kpi_online = self._make_kpi_card(kpi_row, _("snmp_kpi_online", "Online"), "0", "#10B981")
         self.kpi_degraded = self._make_kpi_card(kpi_row, _("snmp_kpi_degraded", "Degraded"), "0", "#F59E0B")
         self.kpi_offline = self._make_kpi_card(kpi_row, _("snmp_kpi_offline", "Offline"), "0", "#F43F5E")
         self.kpi_cpu = self._make_kpi_card(kpi_row, _("snmp_kpi_avg_cpu", "Average CPU"), "--", "#06B6D4")
-        self.kpi_mem = self._make_kpi_card(kpi_row, _("snmp_kpi_avg_mem", "Average Memory"), "--", "#6366F1")
+        self.kpi_mem = self._make_kpi_card(kpi_row, _("snmp_kpi_avg_mem", "Average Memory"), "--", "#818CF8")
         root.addLayout(kpi_row)
 
-        # Filter Row
-        filt = QHBoxLayout()
-        filt.setSpacing(10)
+        # Filter & Actions Toolbar inside FilterBar
+        filt_frame = QFrame()
+        filt_frame.setObjectName("FilterBar")
+        filt = QHBoxLayout(filt_frame)
+        filt.setContentsMargins(12, 8, 12, 8)
+        filt.setSpacing(8)
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText(_("snmp_filter_search", "Search name, IP, vendor, model..."))
         self.search_edit.textChanged.connect(self.refresh_devices)
@@ -501,7 +515,25 @@ class SNMPView(QWidget):
             self.status_filter.addItem(st, st)
         self.status_filter.currentIndexChanged.connect(self.refresh_devices)
         filt.addWidget(self.status_filter)
-        root.addLayout(filt)
+
+        self.btn_poll_all = QPushButton(_("snmp_btn_poll_all", "Poll All Now"))
+        self.btn_poll_all.setObjectName("SecondaryButton")
+        self.btn_poll_all.setCursor(Qt.PointingHandCursor)
+        self.btn_poll_all.clicked.connect(self.poll_all_now)
+        filt.addWidget(self.btn_poll_all)
+
+        self.btn_add = QPushButton(_("snmp_btn_add", "Add SNMP Device"))
+        self.btn_add.setObjectName("PrimaryButton")
+        self.btn_add.setCursor(Qt.PointingHandCursor)
+        self.btn_add.clicked.connect(self.open_add_dialog)
+        filt.addWidget(self.btn_add)
+
+        self.btn_refresh = QPushButton(_("snmp_btn_refresh", "Refresh"))
+        self.btn_refresh.setObjectName("SecondaryButton")
+        self.btn_refresh.setCursor(Qt.PointingHandCursor)
+        self.btn_refresh.clicked.connect(self.refresh_devices)
+        filt.addWidget(self.btn_refresh)
+        root.addWidget(filt_frame)
 
         # Devices Table (12 columns)
         headers = [
@@ -523,48 +555,67 @@ class SNMPView(QWidget):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.table.verticalHeader().setDefaultSectionSize(40)
+        th = self.table.horizontalHeader()
+        th.setSectionResizeMode(QHeaderView.Interactive)
+        th.setSectionResizeMode(2, QHeaderView.Stretch)
+        self.table.setColumnWidth(0, 122)
+        self.table.setColumnWidth(1, 96)
+        self.table.setColumnWidth(3, 48)
+        self.table.setColumnWidth(4, 64)
+        self.table.setColumnWidth(5, 50)
+        self.table.setColumnWidth(6, 52)
+        self.table.setColumnWidth(7, 48)
+        self.table.setColumnWidth(8, 68)
+        self.table.setColumnWidth(9, 58)
+        self.table.setColumnWidth(10, 82)
+        self.table.setColumnWidth(11, 158)
         self.table.cellDoubleClicked.connect(self._on_row_double_clicked)
         root.addWidget(self.table, 1)
 
     @staticmethod
     def _make_kpi_card(layout: QHBoxLayout, title: str, init_val: str, color: str) -> QLabel:
         frame = QFrame()
-        frame.setObjectName("Card")
+        frame.setObjectName("KpiCard")
         fl = QVBoxLayout(frame)
-        fl.setContentsMargins(12, 10, 12, 10)
+        fl.setContentsMargins(10, 8, 10, 8)
         fl.setSpacing(2)
         val_lbl = QLabel(init_val)
         val_lbl.setAlignment(Qt.AlignCenter)
         val_lbl.setStyleSheet(f"font-size: 20px; font-weight: 800; color: {color}; margin-bottom: 0px;")
-        t_lbl = QLabel(title)
+        t_lbl = QLabel(title.upper())
         t_lbl.setAlignment(Qt.AlignCenter)
-        t_lbl.setStyleSheet("font-size: 11px; color: #94A3B8; font-weight: 700; text-transform: uppercase; margin-bottom: 0px;")
+        t_lbl.setWordWrap(True)
+        t_lbl.setStyleSheet("font-size: 11px; color: #94A3B8; font-weight: 700; margin-bottom: 0px;")
         fl.addWidget(val_lbl)
         fl.addWidget(t_lbl)
-        layout.addWidget(frame)
+        layout.addWidget(frame, 1)
         return val_lbl
 
-    def toggle_engine(self) -> None:
-        if self.engine.isRunning():
-            self.engine.stop(timeout_ms=3000)
-            self.btn_toggle_engine.setText(_("snmp_btn_start", "Start Polling"))
-            self.engine_badge.setText(_("snmp_status_stopped", "POLLING STOPPED"))
-            self.engine_badge.setStyleSheet(
-                "background-color: #334155; color: #CBD5E1; border-radius: 8px; padding: 6px 12px; font-weight: bold; font-size: 11px; margin-bottom: 0px;"
-            )
-        else:
-            self.engine.reload_from_db()
-            self.engine.start()
+    def _sync_engine_badge(self) -> None:
+        if self.engine is not None and self.engine.isRunning():
             self.btn_toggle_engine.setText(_("snmp_btn_stop", "Stop Polling"))
             self.engine_badge.setText(_("snmp_status_running", "POLLING ACTIVE"))
             self.engine_badge.setStyleSheet(
                 "background-color: rgba(16,185,129,0.2); color: #10B981; border: 1px solid #10B981; "
-                "border-radius: 8px; padding: 6px 12px; font-weight: bold; font-size: 11px; margin-bottom: 0px;"
+                "border-radius: 8px; padding: 5px 12px; font-weight: 700; font-size: 11px; margin-bottom: 0px;"
             )
+        else:
+            self.btn_toggle_engine.setText(_("snmp_btn_start", "Start Polling"))
+            self.engine_badge.setText(_("snmp_status_stopped", "POLLING STOPPED"))
+            self.engine_badge.setStyleSheet(
+                "background-color: #334155; color: #CBD5E1; border-radius: 8px; padding: 5px 12px; font-weight: 700; font-size: 11px; margin-bottom: 0px;"
+            )
+
+    def toggle_engine(self) -> None:
+        if self.engine.isRunning():
+            self.engine.stop(timeout_ms=3000)
+        else:
+            self.engine.reload_from_db()
+            self.engine.start()
+        self._sync_engine_badge()
 
     def poll_all_now(self) -> None:
         if self._poll_all_worker is not None and self._poll_all_worker.isRunning():
@@ -574,12 +625,14 @@ class SNMPView(QWidget):
             return
         self.engine.reload_from_db()
         self.btn_poll_all.setEnabled(False)
+        self.btn_poll_all.setText(_("devdet_polling", "Polling..."))
         self._poll_all_worker = _PollAllWorker(self.engine, dev_ids, self)
         self._poll_all_worker.finished_batch.connect(self._on_poll_all_done)
         self._poll_all_worker.start()
 
     def _on_poll_all_done(self) -> None:
         self.btn_poll_all.setEnabled(True)
+        self.btn_poll_all.setText(_("snmp_btn_poll_all", "Poll All Now"))
         self.refresh_devices()
 
     def open_add_dialog(self) -> None:
@@ -696,14 +749,17 @@ class SNMPView(QWidget):
             self.table.setItem(row, 10, QTableWidgetItem(lp_str))
 
             act_w = QWidget()
+            act_w.setStyleSheet("background: transparent;")
             act_l = QHBoxLayout(act_w)
             act_l.setContentsMargins(4, 2, 4, 2)
             act_l.setSpacing(6)
             btn_det = QPushButton(_("snmp_btn_details", "Details"))
-            btn_det.setStyleSheet("background-color: #334155; color: #FFFFFF; border-radius: 6px; padding: 4px 8px; font-size: 11px;")
+            btn_det.setObjectName("TableActionButton")
+            btn_det.setCursor(Qt.PointingHandCursor)
             btn_det.clicked.connect(lambda _c, target_id=did: self.open_device_details(target_id))
             btn_del = QPushButton(_("snmp_btn_delete", "Delete"))
-            btn_del.setStyleSheet("background-color: rgba(244,63,94,0.2); color: #F43F5E; border: 1px solid #F43F5E; border-radius: 6px; padding: 4px 8px; font-size: 11px;")
+            btn_del.setObjectName("TableDangerButton")
+            btn_del.setCursor(Qt.PointingHandCursor)
             btn_del.clicked.connect(lambda _c, target_id=did, nm=d["name"], ip=d["ip_address"]: self.delete_device(target_id, nm, ip))
             act_l.addWidget(btn_det)
             act_l.addWidget(btn_del)

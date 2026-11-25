@@ -69,7 +69,7 @@ class MonitoringSettingsWidget(QWidget):
 
         # ── Section 1: Global Probe & State Machine Thresholds ──
         thresh_card = QFrame()
-        thresh_card.setObjectName("Card")
+        thresh_card.setObjectName("PanelCard")
         thresh_outer = QVBoxLayout(thresh_card)
         thresh_outer.setContentsMargins(16, 14, 16, 14)
         thresh_outer.setSpacing(10)
@@ -134,7 +134,7 @@ class MonitoringSettingsWidget(QWidget):
 
         # ── Section 2: Alert & Notification Preferences ──
         notif_card = QFrame()
-        notif_card.setObjectName("Card")
+        notif_card.setObjectName("PanelCard")
         notif_outer = QVBoxLayout(notif_card)
         notif_outer.setContentsMargins(16, 14, 16, 14)
         notif_outer.setSpacing(10)
@@ -167,6 +167,7 @@ class MonitoringSettingsWidget(QWidget):
 
         self.sp_repeat_sec = QSpinBox()
         self.sp_repeat_sec.setRange(0, 86400)
+        self.sp_repeat_sec.setToolTip(_("mon_cfg_sound_duration_hint", "0 = no repeat (once per incident)"))
 
         self.sp_sound_dur = QSpinBox()
         self.sp_sound_dur.setRange(0, 600)
@@ -180,13 +181,14 @@ class MonitoringSettingsWidget(QWidget):
         notif_outer.addLayout(notif_cols)
 
         hint_lbl = QLabel(_("mon_cfg_email_hint", "SMTP server & recipient settings are managed in App Settings -> Alerts (Sound & Email)."))
+        hint_lbl.setWordWrap(True)
         hint_lbl.setStyleSheet("color: #94A3B8; font-size: 11px; margin-bottom: 0px;")
         notif_outer.addWidget(hint_lbl)
         body_layout.addWidget(notif_card)
 
         # ── Section 3: Data Retention & Database Maintenance ──
         ret_card = QFrame()
-        ret_card.setObjectName("Card")
+        ret_card.setObjectName("PanelCard")
         ret_outer = QVBoxLayout(ret_card)
         ret_outer.setContentsMargins(16, 14, 16, 14)
         ret_outer.setSpacing(10)
@@ -228,10 +230,10 @@ class MonitoringSettingsWidget(QWidget):
         purge_row.setSpacing(12)
         self.purge_btn = QPushButton(_("mon_cfg_btn_purge", "Run Retention Purge Now"))
         self.purge_btn.setObjectName("SecondaryButton")
-        self.purge_btn.setFixedHeight(32)
         self.purge_btn.setCursor(Qt.PointingHandCursor)
-        self.purge_btn.clicked.connect(self.run_retention_purge)
+        self.purge_btn.clicked.connect(lambda: self.run_retention_purge(confirm=True))
         self.purge_result_lbl = QLabel("")
+        self.purge_result_lbl.setWordWrap(True)
         self.purge_result_lbl.setStyleSheet("color: #10B981; font-size: 12px; margin-bottom: 0px;")
         purge_row.addWidget(self.purge_btn)
         purge_row.addWidget(self.purge_result_lbl, 1)
@@ -257,25 +259,21 @@ class MonitoringSettingsWidget(QWidget):
 
         self.save_btn = QPushButton(_("mon_cfg_btn_save", "Save Global Settings"))
         self.save_btn.setObjectName("PrimaryButton")
-        self.save_btn.setFixedHeight(36)
         self.save_btn.setCursor(Qt.PointingHandCursor)
         self.save_btn.clicked.connect(self.save_settings)
 
         self.restore_btn = QPushButton(_("mon_cfg_btn_restore", "Restore Defaults"))
         self.restore_btn.setObjectName("SecondaryButton")
-        self.restore_btn.setFixedHeight(36)
         self.restore_btn.setCursor(Qt.PointingHandCursor)
-        self.restore_btn.clicked.connect(self.restore_defaults)
+        self.restore_btn.clicked.connect(lambda: self.restore_defaults(confirm=True))
 
         self.export_btn = QPushButton(_("mon_cfg_btn_export", "Export Config (JSON)"))
         self.export_btn.setObjectName("SecondaryButton")
-        self.export_btn.setFixedHeight(36)
         self.export_btn.setCursor(Qt.PointingHandCursor)
         self.export_btn.clicked.connect(self.export_config)
 
         self.import_btn = QPushButton(_("mon_cfg_btn_import", "Import Config (JSON)"))
         self.import_btn.setObjectName("SecondaryButton")
-        self.import_btn.setFixedHeight(36)
         self.import_btn.setCursor(Qt.PointingHandCursor)
         self.import_btn.clicked.connect(self.import_config)
 
@@ -365,7 +363,17 @@ class MonitoringSettingsWidget(QWidget):
         QMessageBox.information(self, _("msg_success"), _("mon_cfg_saved_ok", "Global monitoring settings saved and applied."))
         return True
 
-    def restore_defaults(self) -> None:
+    def restore_defaults(self, confirm: bool = False) -> None:
+        if confirm:
+            ans = QMessageBox.question(
+                self,
+                _("mon_cfg_btn_restore", "Restore Defaults"),
+                _("mon_cfg_btn_restore", "Restore Defaults") + "?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if ans != QMessageBox.Yes:
+                return
         default_cfg = MonitoringPolicyConfig()
         self._apply_policy_to_form(default_cfg)
         self.sp_sound_dur.setValue(_DEFAULT_SOUND_DUR_SEC)
@@ -380,7 +388,17 @@ class MonitoringSettingsWidget(QWidget):
         self.global_policy_saved.emit(default_cfg.to_dict())
         QMessageBox.information(self, _("msg_success"), _("mon_cfg_restored_ok", "Default monitoring settings restored."))
 
-    def run_retention_purge(self) -> Dict[str, int]:
+    def run_retention_purge(self, confirm: bool = False) -> Dict[str, int]:
+        if confirm:
+            ans = QMessageBox.question(
+                self,
+                _("mon_cfg_btn_purge", "Run Retention Purge Now"),
+                _("mon_cfg_btn_purge", "Run Retention Purge Now") + "?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if ans != QMessageBox.Yes:
+                return {"raw": 0, "aggregated": 0, "incidents": 0, "alerts": 0}
         self._persist_aux_config()
         counts = self.db.cleanup_by_retention(
             raw_days=self.sp_ret_raw.value(),
@@ -442,14 +460,28 @@ class MonitoringSettingsWidget(QWidget):
             )
             return False
 
-        gp_cfg = MonitoringPolicyConfig.from_dict(payload["global_policy"])
+        try:
+            gp_cfg = MonitoringPolicyConfig.from_dict(payload["global_policy"])
+            gp_cfg.validate()
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                _("msg_error"),
+                _("mon_cfg_import_err", "Failed to import configuration: {}").format(str(e)),
+            )
+            return False
+
         self.db.save_policy(gp_cfg.to_dict(), host_id=None)
 
         host_by_addr = {h["address"]: h for h in self.db.get_hosts()}
         for addr, h_dict in payload.get("host_policies", {}).items():
             h_row = host_by_addr.get(addr)
             if h_row is not None:
-                h_cfg = MonitoringPolicyConfig.from_dict(h_dict)
+                try:
+                    h_cfg = MonitoringPolicyConfig.from_dict(h_dict)
+                    h_cfg.validate()
+                except Exception:
+                    continue
                 self.db.save_policy(h_cfg.to_dict(), host_id=h_row["id"])
                 self.engine.update_host_policy(addr, h_cfg)
 
